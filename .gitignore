@@ -23,7 +23,15 @@ cache/
 # Large generated / transient artifacts
 exp/inference/devset/*.json.tmp
 data/*.jsonl
+data/*.pt
 out/
+
+# SID experiments (large .npy/.pt files, regenerated on server)
+exp/sid/multimodal_2176d/
+exp/sid/rqvae_*/
+
+# Claude working directory
+.claude/
 
 # Don't ship the upstream nlp4musa clones — see README for clone instructions
 music-crs-baselines/

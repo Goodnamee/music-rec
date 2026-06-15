@@ -1,60 +1,94 @@
-# Label Semantics
-说明：
-点击/播放是用户主动行为，虽然有噪声，但可以作为弱正反馈。
-Music-CRS 中的 music target 更接近 benchmark target / teacher policy label。
-因此本项目不声称学习真实满意度。
-为了增强用户偏好建模，引入 CF-BPR user/item embeddings 和历史 track 信息。
-最终评估仍按 benchmark 的 nDCG@20 / Hit@20，同时报告限制。
-== 相当于自回归？根据已有序列预测下一个序列 ==
+# 项目方向：生成式音乐推荐 Agent
 
-这个项目的 RQ-VAE 是一个 商品语义 ID 构造器。它先把商品文本转成连续 embedding，再用多级残差向量量化把 embedding 离散化成 SID。后续 LLM 推荐模型不直接预测商品编号，而是像生成文本一样生成 <a_*> <b_*> <c_*> 这些语义 token。优点是把推荐问题转成 LLM 更容易处理的生成问题；缺点是 SID 质量高度依赖 embedding、RQ-VAE 训练和 collision 控制。
+将 RecSys Challenge 2026 检索 pipeline 转变为端到端生成式 Agent——自己对话、自己推荐，闭环在自己手里。
 
-# target
-● 已整理并保存。以下是完整总结：
+## 核心架构
 
-  ---
-  项目方向：生成式音乐推荐 Agent
+```
+用户 → Chat LLM (对话管理) → SID Generator (对话→SID) → Codebook解码 → 回复
+```
 
-  核心问题：竞赛数据是 Gemini 生成的模拟对话，用这些对话训练模型就是在模仿 Gemini。目标是把推荐系统改成一个完整 Agent——自己对话、自己推荐，闭环在自己手里。
+两个模块：Chat LLM 现成大模型直接用，SID Generator 需要自己训。不需要 State Extractor。
 
-  Agent 架构
+## SID 构造
 
-  用户 → Chat LLM (对话管理) → SID Generator (对话→语义token) → Codebook解码 → 个性化重排 → 回复
+用 **RQ-VAE**（不用 Residual KMeans——KMeans 已证实 93% 碰撞率，不可用）。
 
-  核心模块只有两个：
-  - Chat LLM：管理对话节奏，现成大模型直接用
-  - SID Generator：对话文本 → SID tokens，需要自己训
+| 模态 | 维度 | 语义 | 用否 |
+|---|---|---|---|
+| attributes-qwen3 | 1024d | 流派/情绪/时代 | ✅ |
+| lyrics-qwen3 | 1024d | 歌词内容 | ✅ |
+| cf-bpr | 128d | 协同行为（谁在听） | ✅ |
+| metadata | 1024d | 曲名/艺人名 | ❌ shortcut learning |
+| audio/image | 512/768d | — | ❌ 维度低，与 attr 冗余 |
 
-  不需要 State Extractor，SID Generator 隐式完成了偏好提取。
+三模态 L2 normalize → 拼接 2176d → RQ-VAE（depth=4, k=256, EMA+commitment loss）→ track→SID 映射表。
 
-  SID 构造
+**为什么不用 metadata**：metadata 让模型学会"查艺人字典"而非理解音乐语义。用户说 "Coldplay" → 所有 Coldplay 歌的 SID 挤在一起 → 模型随便输出一个 cluster 内的。捷径存在，模型就不学内容了。显式指称（"放 Yellow by Coldplay"）靠训练中记忆映射解决——55 万条样本足够。
 
-  用 attributes-qwen3 + lyrics-qwen3 + cf-bpr 三模拼接 (2176d)，训 RQ-VAE。attributes+lyrics 给内容语义，cf-bpr 给行为语义，互补且不冗余。
+## 训练数据
 
-  训练数据
+**"去掉 Gemini 轨迹" = 丢掉 `role=="music"` 的文本，不是丢掉训练信号。**
 
-  从竞赛数据只取 role=="user" 的文本 + ground truth track 映射成 SID label。role=="music" 的 Gemini 推荐轨迹丢掉不用。
+| 保留 | 丢掉 |
+|---|---|
+| `role=="user"` 文本 | `role=="music"` 的 Gemini 推荐文本 |
+| ground truth track → SID label | Gemini 的推荐策略 |
 
-  两阶段对齐
+逻辑：用合成 query（Gemini 生成的 user 话语），预测真实 label（playlist 中的 ground truth track）。输入可以是合成的，输出必须是真实的。
 
-  RQ-VAE 和 seq2seq 独立训练有 gap。在 seq2seq decoder hidden state 上加 InfoNCE 对比损失（anchor=gold SID, negatives=batch 内其他 SID），不重训 RQ-VAE，工程简单且有效。
+数据增强：同一 session 前缀截断（t1, t1-2, t1-3, ..., t1-8）→ ~55 万条训练样本。
 
-  Playlist 信号
+## Playlist 利用
 
-  三步：① cf-bpr 已在 SID 里；② playlist embedding pooling 可选做 user profile 向量塞进 seq2seq 输入；③ SID 召回后 playlist embedding 重排（最保守的先做）。
+**用。** Playlist 是真实用户行为数据，和 Gemini 推荐文本有本质区别：
 
-  执行路线
+| Gemini 推荐 | User Playlist |
+|---|---|
+| LLM 生成 → 蒸馏 Gemini | 真实用户行为 → 学习真实偏好 |
 
-  ┌─────────┬───────────────────────────────────────────────────┬─────────┐
-  │  阶段   │                       内容                        │  时间   │
-  ├─────────┼───────────────────────────────────────────────────┼─────────┤
-  │ Phase 1 │ 三模态 SID 构建 + RQ-VAE 训练                     │ ~1 天   │
-  ├─────────┼───────────────────────────────────────────────────┼─────────┤
-  │ Phase 2 │ SID Generator seq2seq 训练 + constrained decoding │ ~2-3 天 │
-  ├─────────┼───────────────────────────────────────────────────┼─────────┤
-  │ Phase 3 │ Agent 组装（Chat LLM + SID 链路串联）             │ ~1 天   │
-  ├─────────┼───────────────────────────────────────────────────┼─────────┤
-  │ Phase 4 │ Dev 评测 + 对齐迭代                               │ 持续    │
-  └─────────┴───────────────────────────────────────────────────┴─────────┘
+两种注入方式：
+1. **SID 构造**：cf-bpr 已编码全局协同行为
+2. **SID Generator 输入**：playlist embedding attention pooling → user_vector → concat 进 decoder
 
-  ---
+**不需要重排**。Playlist 信号已经通过 concat 进入 SID Generator，模型一步完成"理解对话 + 理解用户"。重排是 Vision A 的思维。
+
+## 架构定位
+
+**Vision B（采用）：SID Generator 是唯一推荐引擎，砍掉 BM25/dense。**
+
+Vision A（放弃）：SID 只是多路 ensemble 的一个通道 → 退化成了检索特征。
+
+Baseline 保留但不做 ensemble，只做对比基线：生成式 vs 检索式，在哪些 turn 各有优劣。
+
+## 执行路线
+
+| Phase | 内容 |
+|---|---|
+| 1 | 三模态 Embedding 加载 + RQ-VAE 训练 → codebook + track→SID |
+| 2 | 训练数据构造 + SID Generator seq2seq 训练 + constrained decoding |
+| 3 | Agent 组装（Chat LLM + SID Generator 链路串联） |
+| 4 | Dev 评测 + 对比损失对齐迭代 |
+
+## 缺失模块
+
+| 模块 | 说明 |
+|---|---|
+| Constrained decoding | SID Generator 只输出合法 SID token（trie/FSM 约束） |
+| SID→Track 倒排 | codebook 查表，毫秒级 |
+| SID 评估桥接 | SID→track_ids→evaluate.py |
+| 训练数据构造脚本 | user 文本提取 + gold track→SID label |
+
+## 工业成本
+
+**离线**：RQ-VAE 训练 ~3-4h (A100, ~$5-10)，SID Generator ~6-12h (~$15-30)
+
+**在线 per turn**：
+- SID Generator forward (T5-small 60M)：~50ms GPU / ~1-2s CPU
+- Chat LLM (Qwen3-4B int8)：~500ms GPU
+- Pooling + 倒排查：<2ms
+- 总延迟 ~600ms，GPU 显存 ~4GB，磁盘 ~500MB
+
+**规模化**：10 QPS → 1×T4 (~$100/月)，1000 QPS → 2×A100 (~$3000/月)
+
+**冷启动**：新 track → 算 embedding + 已有 codebook 编码 → 秒级上线；新用户 → SID Generator 纯对话模式 + cf-bpr 全局先验
