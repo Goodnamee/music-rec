@@ -45,18 +45,21 @@ SID:"""
 PRESETS = {
     "5090": {
         "batch_size": 32, "grad_accum": 1,
-        "eval_batch_size": 16, "use_4bit": False,
+        "eval_batch_size": 1, "use_4bit": False,
         "attn": "flash_attention_2", "fp16": True,
+        "skip_eval": True,
     },
     "local": {
         "batch_size": 8, "grad_accum": 4,
         "eval_batch_size": 4, "use_4bit": True,
         "attn": "sdpa", "fp16": False,
+        "skip_eval": False,
     },
     "test": {
         "batch_size": 8, "grad_accum": 4,
         "eval_batch_size": 4, "use_4bit": True,
         "attn": "sdpa", "fp16": False,
+        "skip_eval": True,
     },
 }
 
@@ -231,12 +234,12 @@ def main():
         learning_rate=args.lr,
         warmup_steps=100,
         logging_steps=args.logging_steps,
-        eval_strategy="no" if args.preset == "test" else "steps",
+        eval_strategy="no" if preset.get("skip_eval") else "steps",
         eval_steps=args.eval_steps,
         save_strategy="steps",
         save_steps=args.save_steps,
         save_total_limit=3,
-        load_best_model_at_end=False if args.preset == "test" else True,
+        load_best_model_at_end=False if preset.get("skip_eval") else True,
         metric_for_best_model="eval_sid_accuracy",
         greater_is_better=True,
         fp16=preset["fp16"],
