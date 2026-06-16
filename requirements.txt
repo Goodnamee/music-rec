@@ -29,6 +29,8 @@ fire>=0.7.0
 # flash-attn         # Flash Attention 2 (Linux only, 2-3x training speedup)
 
 # === Qwen3 model ===
-# Downloaded automatically by transformers on first use (~432MB, no auth).
-# python -c "from transformers import AutoModelForCausalLM; AutoModelForCausalLM.from_pretrained('Qwen/Qwen3-0.6B')"
-# Pre-download to bypass slow CDN: export HF_ENDPOINT=https://hf-mirror.com (China mirror)
+# 无卡模式下载（只需 huggingface_hub，无需 torch）:
+#   pip install huggingface_hub
+#   huggingface-cli download Qwen/Qwen3-0.6B --local-dir ./Qwen3-0.6B
+# 训练时指定: --model_path ./Qwen3-0.6B
+# 下载慢用镜像: export HF_ENDPOINT=https://hf-mirror.com

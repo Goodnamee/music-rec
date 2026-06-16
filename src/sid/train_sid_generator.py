@@ -76,7 +76,7 @@ def tokenize_sample(input_text: str, output_text: str, tokenizer, max_length: in
 
 
 def pre_tokenize(args):
-    tokenizer = AutoTokenizer.from_pretrained(args.model_id, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.add_tokens(SID_TOKENS)
@@ -149,7 +149,8 @@ def main():
     p.add_argument("--eval_jsonl", default="data/sid_eval.jsonl")
     p.add_argument("--train_pt", default="data/sid_train_512.pt")
     p.add_argument("--eval_pt", default="data/sid_eval_512.pt")
-    p.add_argument("--model_id", default="Qwen/Qwen3-0.6B")
+    p.add_argument("--model_path", default="Qwen/Qwen3-0.6B",
+                   help="Local path or HF model ID")
     p.add_argument("--output_dir", default="out/sid_generator")
     p.add_argument("--max_length", type=int, default=512)
     p.add_argument("--preset", choices=["local", "5090", "test"], default="local")
@@ -175,7 +176,7 @@ def main():
           f"4bit={preset['use_4bit']}, attn={preset['attn']}")
 
     # Tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(args.model_id, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.add_tokens(SID_TOKENS)
@@ -195,7 +196,7 @@ def main():
     else:
         model_kwargs["torch_dtype"] = torch.float16
 
-    model = AutoModelForCausalLM.from_pretrained(args.model_id, **model_kwargs)
+    model = AutoModelForCausalLM.from_pretrained(args.model_path, **model_kwargs)
     model.resize_token_embeddings(len(tokenizer))
     model.gradient_checkpointing_enable()
 

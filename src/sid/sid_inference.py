@@ -29,7 +29,7 @@ PROMPT = """Given the conversation history and user preferences, predict the sem
 SID:"""
 
 
-def load_model(model_dir: str, device: str = "cuda"):
+def load_model(model_dir: str, base_model: str = "Qwen/Qwen3-0.6B", device: str = "cuda"):
     """Load trained SID Generator with LoRA adapter."""
     with open(Path(model_dir) / "sid_config.json") as f:
         sid_config = json.load(f)
@@ -42,7 +42,7 @@ def load_model(model_dir: str, device: str = "cuda"):
         bnb_4bit_use_double_quant=True,
     )
     model = AutoModelForCausalLM.from_pretrained(
-        "Qwen/Qwen3-0.6B",
+        args.model_path,
         quantization_config=bnb_config,
         trust_remote_code=True,
         attn_implementation="sdpa",
@@ -163,6 +163,8 @@ def build_session_inputs(session: dict, tokenizer, track_to_sid: dict, sid_to_tr
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--model_dir", required=True)
+    p.add_argument("--model_path", default="Qwen/Qwen3-0.6B",
+                   help="Local path or HF model ID for base model")
     p.add_argument("--sid_to_tracks", required=True)
     p.add_argument("--track_to_sid", required=True)
     p.add_argument("--out", default="exp/inference/devset/sid_generator.json")
@@ -173,7 +175,7 @@ def main():
 
     # Load model
     print("[model] loading SID Generator...")
-    model, tokenizer, sid_tokens = load_model(args.model_dir, args.device)
+    model, tokenizer, sid_tokens = load_model(args.model_dir, args.model_path, args.device)
 
     # Load mappings
     with open(args.sid_to_tracks) as f:

@@ -8,6 +8,7 @@
 #   (TOKEN: GitHub Settings → Developer settings → Personal access tokens → Tokens (classic) → repo scope)
 set -euo pipefail
 
+MODEL_PATH="${1:-./Qwen3-0.6B}"
 OUT_DIR="out/sid_generator"
 EXP_DIR="exp/inference/devset"
 
@@ -15,7 +16,7 @@ echo "=== Phase 1: Training ==="
 python src/sid/train_sid_generator.py \
   --train_pt data/sid_train_512.pt \
   --eval_pt data/sid_eval_512.pt \
-  --model_id Qwen/Qwen3-0.6B \
+  --model_path "$MODEL_PATH" \
   --output_dir "$OUT_DIR" \
   --preset 5090 \
   --epochs 5
@@ -23,6 +24,7 @@ python src/sid/train_sid_generator.py \
 echo "=== Phase 2: Inference ==="
 python src/sid/sid_inference.py \
   --model_dir "$OUT_DIR" \
+  --model_path "$MODEL_PATH" \
   --sid_to_tracks exp/sid/rqvae_2176d_d4_k256/sid_to_tracks.json \
   --track_to_sid exp/sid/rqvae_2176d_d4_k256/track_to_sid.json \
   --out "$EXP_DIR/sid_generator.json"
