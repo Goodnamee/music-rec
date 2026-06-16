@@ -246,7 +246,7 @@ def main():
         remove_unused_columns=False,
     )
 
-    trainer_kwargs = dict(
+    trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
@@ -255,9 +255,6 @@ def main():
         processing_class=tokenizer,
         compute_metrics=compute_metrics,
     )
-    if args.preset != "test":
-        trainer_kwargs["predict_with_generate"] = True
-    trainer = Trainer(**trainer_kwargs)
     model.config.use_cache = False
 
     trainer.train()
