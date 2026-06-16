@@ -1,9 +1,0 @@
-# GPU-only extras (in addition to requirements.txt)
-# All core packages already in requirements.txt — this file adds GPU-specific optimizations.
-
-# Flash Attention 2 — Linux only, 2-3x training speedup on A100/H100/B200/5090/6000Pro
-# Install separately: pip install flash-attn --no-build-isolation
-# flash-attn
-
-# For QLoRA: bitsandbytes already in requirements.txt
-# For SDPA (PyTorch native): no extra install needed — used automatically on Windows
