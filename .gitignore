@@ -41,3 +41,5 @@ music-crs-evaluator/
 !exp/inference/
 !exp/scores/
 !exp/ground_truth/
+
+*.gz
