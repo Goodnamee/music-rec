@@ -8,6 +8,16 @@
 #   (TOKEN: GitHub Settings → Developer settings → Personal access tokens → Tokens (classic) → repo scope)
 set -euo pipefail
 
+# On any error: log, push error log, shutdown
+on_error() {
+    local exit_code=$?
+    echo "=== ERROR at line $1 (exit $exit_code) ===" | tee -a error.log
+    date >> error.log
+    git add error.log train.log && git commit -m "Auto shutdown after error" && git push || true
+    /usr/bin/autodl shutdown 2>/dev/null || sudo shutdown -h now
+}
+trap 'on_error $LINENO' ERR
+
 MODEL_PATH="${1:-./Qwen3-0.6B}"
 OUT_DIR="out/sid_generator"
 EXP_DIR="exp/inference/devset"

@@ -43,3 +43,5 @@ music-crs-evaluator/
 !exp/ground_truth/
 
 *.gz
+
+Qwen3-0.6B/
