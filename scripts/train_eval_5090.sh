@@ -21,6 +21,11 @@ python src/sid/train_sid_generator.py \
   --preset 5090 \
   --epochs 5
 
+echo "=== Git push (model checkpoint) ==="
+git add "$OUT_DIR" || true
+git commit -m "SID Generator model — $(date -I)" || true
+git push
+
 echo "=== Phase 2: Inference ==="
 python src/sid/sid_inference.py \
   --model_dir "$OUT_DIR" \
@@ -38,10 +43,10 @@ python src/evaluate.py \
 echo "=== Results ==="
 cat exp/scores/devset/sid_generator.json
 
-echo "=== Phase 4: Git push ==="
+echo "=== Phase 4: Git push (eval results) ==="
 git add exp/inference/devset/sid_generator.json exp/scores/devset/sid_generator.json
-git commit -m "SID Generator 5090 results — $(date -I)" || true
+git commit -m "SID Generator eval results — $(date -I)" || true
 git push
 
 echo "=== Done, shutting down ==="
-sudo shutdown -h now
+/usr/bin/autodl shutdown 2>/dev/null || sudo shutdown -h now
