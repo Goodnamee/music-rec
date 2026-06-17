@@ -1,0 +1,8 @@
+=== ERROR at Thu Jun 18 00:52:34 CST 2026 ===
+Exit code: 0
+nohup: ignoring input
+=== Phase 1: Training ===
+[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+[preset] 5090: batch=32×1, 4bit=False, attn=sdpa
+Loading weights:   0%|          | 0/311 [00:00<?, ?it/s]scripts/train_eval_5090.sh: line 36:  2158 Killed                  python src/sid/train_sid_generator.py --train_pt data/sid_train_512.pt --eval_pt data/sid_eval_512.pt --model_path "$MODEL_PATH" --output_dir "$OUT_DIR" --preset 5090 --epochs 5
+=== ERROR at Thu Jun 18 00:52:34 CST 2026 ===
