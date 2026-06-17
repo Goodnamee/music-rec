@@ -79,9 +79,14 @@ def batch_generate(model, tokenizer, sid_tokens: list[str], prompts: list[str],
                        max_length=512, padding=True).to(model.device)
     B = inputs["input_ids"].shape[0]
 
-    # Build allowed token list: only <SID_x> tokens + eos
+    # Build allowed token list: <SID_x> tokens + space + eos + im_end
     allowed_ids = [tokenizer.convert_tokens_to_ids(t) for t in sid_tokens]
-    allowed_ids.append(tokenizer.eos_token_id)
+    space_id = tokenizer.convert_tokens_to_ids(" ")  # space between SID tokens
+    allowed_ids.extend([space_id, tokenizer.eos_token_id])
+    # Qwen3 uses <|im_end|> as end token
+    im_end = tokenizer.convert_tokens_to_ids("<|im_end|>")
+    if im_end != tokenizer.eos_token_id:
+        allowed_ids.append(im_end)
 
     def prefix_allowed_fn(batch_id, input_ids):
         return allowed_ids
