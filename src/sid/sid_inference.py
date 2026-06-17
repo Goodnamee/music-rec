@@ -41,18 +41,22 @@ def load_model(model_dir: str, base_model: str = "Qwen/Qwen3-0.6B", device: str 
         bnb_4bit_compute_dtype=torch.float16,
         bnb_4bit_use_double_quant=True,
     )
+    # Load tokenizer first (needed for vocab size)
+    tokenizer = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True)
+    tokenizer.padding_side = "left"
+
+    # Load base model
     model = AutoModelForCausalLM.from_pretrained(
-        args.model_path,
+        base_model,
         quantization_config=bnb_config,
         trust_remote_code=True,
         attn_implementation="sdpa",
         device_map="auto",
     )
+    # Resize to match trained tokenizer (which includes SID tokens)
+    model.resize_token_embeddings(len(tokenizer))
     model = PeftModel.from_pretrained(model, model_dir)
     model.eval()
-
-    tokenizer = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True)
-    tokenizer.padding_side = "left"
 
     return model, tokenizer, sid_tokens
 
