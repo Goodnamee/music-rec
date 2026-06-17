@@ -48,7 +48,7 @@ PRESETS = {
         "batch_size": 32, "grad_accum": 1,
         "eval_batch_size": 4, "use_4bit": False,
         "attn": "flash_attention_2", "fp16": True,
-        "skip_eval": False, "max_eval_samples": 100,
+        "skip_eval": False,
     },
     "local": {
         "batch_size": 8, "grad_accum": 4,
@@ -260,7 +260,6 @@ def main():
         eval_dataset=eval_dataset,
         data_collator=data_collator,
         processing_class=tokenizer,
-        compute_metrics=compute_metrics,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
     )
     model.config.use_cache = False
