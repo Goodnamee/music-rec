@@ -167,13 +167,15 @@ def batch_generate(model, tokenizer, sid_tokens: list[str], prompts: list[str],
             logits_processor=logits_processor,
         )
 
-    # outputs.sequences shape: (B * num_return, seq_len)
+    # outputs.sequences shape: (B * num_return, padded_input_len + generated_len)
+    # All inputs are left-padded to same max length → extract from max_len onward
+    input_len = inputs["input_ids"].shape[1]
     all_sids = []
     for i in range(B):
         sample_sids = []
         for j in range(num_return):
             beam_idx = i * num_return + j
-            new_tokens = outputs.sequences[beam_idx][inputs["input_ids"][i].ne(tokenizer.pad_token_id).sum():]
+            new_tokens = outputs.sequences[beam_idx][input_len:]
             decoded = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
             if decoded:
                 sample_sids.append(decoded)
