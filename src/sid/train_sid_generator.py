@@ -27,6 +27,7 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
+    EarlyStoppingCallback,
     Trainer,
     TrainingArguments,
 )
@@ -45,9 +46,9 @@ SID:"""
 PRESETS = {
     "5090": {
         "batch_size": 32, "grad_accum": 1,
-        "eval_batch_size": 1, "use_4bit": False,
+        "eval_batch_size": 4, "use_4bit": False,
         "attn": "flash_attention_2", "fp16": True,
-        "skip_eval": True,
+        "skip_eval": False, "max_eval_samples": 100,
     },
     "local": {
         "batch_size": 8, "grad_accum": 4,
@@ -215,9 +216,10 @@ def main():
 
     # Data
     train_dataset = PTDataset(args.train_pt)
+    max_eval = preset.get("max_eval_samples", args.max_eval_samples)
     eval_dataset = PTDataset(args.eval_pt)
-    if args.max_eval_samples > 0 and len(eval_dataset) > args.max_eval_samples:
-        eval_dataset = torch.utils.data.Subset(eval_dataset, range(args.max_eval_samples))
+    if max_eval > 0 and len(eval_dataset) > max_eval:
+        eval_dataset = torch.utils.data.Subset(eval_dataset, range(max_eval))
     effective_batch = preset["batch_size"] * preset["grad_accum"]
     total_steps = (len(train_dataset) // effective_batch) * args.epochs
     if args.max_steps > 0:
@@ -239,7 +241,9 @@ def main():
         save_strategy="steps",
         save_steps=args.save_steps,
         save_total_limit=3,
-        load_best_model_at_end=False if preset.get("skip_eval") else True,
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
         metric_for_best_model="eval_sid_accuracy",
         greater_is_better=True,
         fp16=preset["fp16"],
@@ -257,6 +261,7 @@ def main():
         data_collator=data_collator,
         processing_class=tokenizer,
         compute_metrics=compute_metrics,
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
     )
     model.config.use_cache = False
 
