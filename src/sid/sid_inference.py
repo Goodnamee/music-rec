@@ -72,12 +72,19 @@ def build_constrained_prefix(tokenizer, sid_tokens, sid_depth: int = 4):
     }
 
 
-def batch_generate(model, tokenizer, prompts: list[str], max_new_tokens: int = 32,
-                   num_beams: int = 20, num_return: int = 20):
-    """Generate SID sequences for a batch of prompts."""
+def batch_generate(model, tokenizer, sid_tokens: list[str], prompts: list[str],
+                   max_new_tokens: int = 32, num_beams: int = 20, num_return: int = 20):
+    """Generate SID sequences for a batch of prompts, constrained to SID tokens only."""
     inputs = tokenizer(prompts, return_tensors="pt", truncation=True,
                        max_length=512, padding=True).to(model.device)
     B = inputs["input_ids"].shape[0]
+
+    # Build allowed token list: only <SID_x> tokens + eos
+    allowed_ids = [tokenizer.convert_tokens_to_ids(t) for t in sid_tokens]
+    allowed_ids.append(tokenizer.eos_token_id)
+
+    def prefix_allowed_fn(batch_id, input_ids):
+        return allowed_ids
 
     with torch.no_grad():
         outputs = model.generate(
@@ -91,6 +98,7 @@ def batch_generate(model, tokenizer, prompts: list[str], max_new_tokens: int = 3
             do_sample=False,
             output_scores=False,
             return_dict_in_generate=True,
+            prefix_allowed_tokens_fn=prefix_allowed_fn,
         )
 
     # outputs.sequences shape: (B * num_return, seq_len)
@@ -213,7 +221,7 @@ def main():
     for i in tqdm(range(0, len(prompts), INFER_BATCH), desc="generating"):
         batch_prompts = prompts[i : i + INFER_BATCH]
         batch_samples = all_samples[i : i + INFER_BATCH]
-        batch_sids = batch_generate(model, tokenizer, batch_prompts)
+        batch_sids = batch_generate(model, tokenizer, sid_tokens, batch_prompts)
 
         for sample, sids in zip(batch_samples, batch_sids):
             track_ids = []
