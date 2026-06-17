@@ -268,7 +268,7 @@ def main():
     with open(Path(args.output_dir) / "sid_config.json", "w") as f:
         json.dump({"depth": SID_DEPTH, "codebook_size": SID_CODEBOOK_SIZE, "sid_tokens": SID_TOKENS}, f)
 
-    if args.max_steps < 0:
+    if not preset.get("skip_eval") and args.max_steps < 0:
         result = trainer.evaluate()
         print(f"[final] eval_sid_accuracy = {result.get('eval_sid_accuracy', 'N/A')}")
 

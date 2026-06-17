@@ -16,7 +16,7 @@ on_error() {
     echo "Exit code: $?" >> error.log
     tail -50 train.log >> error.log 2>/dev/null || true
     git add error.log && git commit -m "Auto shutdown after error — $(date -Isec)" && git push || true
-    /usr/bin/autodl shutdown 2>/dev/null || shutdown -h now || true
+    /usr/bin/autodl shutdown 2>/dev/null || shutdown -h now 2>/dev/null || poweroff
     exit 1
 }
 trap on_error ERR
@@ -59,4 +59,4 @@ git commit -m "SID Generator results — $(date -Isec)" || true
 git push
 
 echo "=== Done, shutting down ==="
-/usr/bin/autodl shutdown 2>/dev/null || shutdown -h now || true
+/usr/bin/autodl shutdown 2>/dev/null || shutdown -h now 2>/dev/null || poweroff
