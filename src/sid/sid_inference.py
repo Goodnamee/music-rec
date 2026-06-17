@@ -72,34 +72,40 @@ def build_constrained_prefix(tokenizer, sid_tokens, sid_depth: int = 4):
     }
 
 
-def constrained_generate(model, tokenizer, prompt: str, constrained, max_new_tokens: int = 32):
-    """Generate with beam search, constrained to SID tokens."""
-    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512).to(model.device)
+def batch_generate(model, tokenizer, prompts: list[str], max_new_tokens: int = 32,
+                   num_beams: int = 20, num_return: int = 20):
+    """Generate SID sequences for a batch of prompts."""
+    inputs = tokenizer(prompts, return_tensors="pt", truncation=True,
+                       max_length=512, padding=True).to(model.device)
+    B = inputs["input_ids"].shape[0]
 
-    # Create logits processor that masks out non-SID tokens after generating SID:
     with torch.no_grad():
         outputs = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
-            num_beams=20,
-            num_return_sequences=20,
+            num_beams=num_beams,
+            num_return_sequences=num_return,
             early_stopping=True,
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
             do_sample=False,
-            temperature=1.0,
             output_scores=False,
             return_dict_in_generate=True,
         )
 
-    # Decode each beam
-    sids = []
-    for beam_ids in outputs.sequences:
-        new_tokens = beam_ids[inputs["input_ids"].shape[1]:]
-        decoded = tokenizer.decode(new_tokens, skip_special_tokens=True)
-        sids.append(decoded.strip())
+    # outputs.sequences shape: (B * num_return, seq_len)
+    all_sids = []
+    for i in range(B):
+        sample_sids = []
+        for j in range(num_return):
+            beam_idx = i * num_return + j
+            new_tokens = outputs.sequences[beam_idx][inputs["input_ids"][i].ne(tokenizer.pad_token_id).sum():]
+            decoded = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+            if decoded:
+                sample_sids.append(decoded)
+        all_sids.append(sample_sids)
 
-    return sids
+    return all_sids
 
 
 def build_session_inputs(session: dict, tokenizer, track_to_sid: dict, sid_to_tracks: dict):
@@ -199,37 +205,39 @@ def main():
     for session in tqdm(sessions, desc="building inputs"):
         all_samples.extend(build_session_inputs(session, tokenizer, track_to_sid, sid_to_tracks))
 
-    # Inference
+    # Inference (batched)
+    INFER_BATCH = 4
     results = []
-    for sample in tqdm(all_samples, desc="generating"):
-        prompt = PROMPT.format(input=sample["input"])
-        sids = constrained_generate(model, tokenizer, prompt, {})
+    prompts = [PROMPT.format(input=s["input"]) for s in all_samples]
 
-        # Decode SIDs to track IDs
-        track_ids = []
-        seen = set()
-        for sid_str in sids:
-            if sid_str in sid_to_tracks:
-                for tid in sid_to_tracks[sid_str]:
-                    if tid not in seen:
-                        track_ids.append(tid)
-                        seen.add(tid)
-                        if len(track_ids) >= 20:
-                            break
-            if len(track_ids) >= 20:
-                break
+    for i in tqdm(range(0, len(prompts), INFER_BATCH), desc="generating"):
+        batch_prompts = prompts[i : i + INFER_BATCH]
+        batch_samples = all_samples[i : i + INFER_BATCH]
+        batch_sids = batch_generate(model, tokenizer, batch_prompts)
 
-        # Pad if not enough tracks
-        while len(track_ids) < 20:
-            track_ids.append("")
+        for sample, sids in zip(batch_samples, batch_sids):
+            track_ids = []
+            seen = set()
+            for sid_str in sids:
+                if sid_str in sid_to_tracks:
+                    for tid in sid_to_tracks[sid_str]:
+                        if tid not in seen:
+                            track_ids.append(tid)
+                            seen.add(tid)
+                            if len(track_ids) >= 20:
+                                break
+                if len(track_ids) >= 20:
+                    break
+            while len(track_ids) < 20:
+                track_ids.append("")
 
-        results.append({
-            "session_id": sample["session_id"],
-            "user_id": sample["user_id"],
-            "turn_number": sample["turn"],
-            "predicted_track_ids": track_ids[:20],
-            "predicted_response": "",
-        })
+            results.append({
+                "session_id": sample["session_id"],
+                "user_id": sample["user_id"],
+                "turn_number": sample["turn"],
+                "predicted_track_ids": track_ids[:20],
+                "predicted_response": "",
+            })
 
     # Save
     out_path = Path(args.out)
