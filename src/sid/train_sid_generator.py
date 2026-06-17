@@ -33,7 +33,7 @@ from transformers import (
 )
 from tqdm import tqdm
 
-SID_DEPTH = 4
+SID_DEPTH = 3
 SID_CODEBOOK_SIZE = 256
 SID_TOKENS = [f"<SID_{i}>" for i in range(SID_CODEBOOK_SIZE)]
 
@@ -244,8 +244,6 @@ def main():
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
-        metric_for_best_model="eval_sid_accuracy",
-        greater_is_better=True,
         fp16=preset["fp16"],
         gradient_checkpointing=True,
         report_to="none",
