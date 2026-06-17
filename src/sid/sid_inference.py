@@ -77,7 +77,7 @@ def constrained_generate(model, tokenizer, prompt: str, constrained, max_new_tok
         outputs = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
-            num_beams=40,
+            num_beams=20,
             num_return_sequences=20,
             early_stopping=True,
             pad_token_id=tokenizer.pad_token_id,

@@ -2,25 +2,29 @@
 # Run on RTX 5090: train → infer → eval → git push → shutdown
 # Usage: nohup bash scripts/train_eval_5090.sh > train.log 2>&1 &
 #
-# Before first run, set up git token auth once:
+# Set up git auth once before running:
 #   git config credential.helper store
 #   git push https://Goodnamee:TOKEN@github.com/Goodnamee/music-rec.git master
-#   (TOKEN: GitHub Settings → Developer settings → Personal access tokens → Tokens (classic) → repo scope)
 set -euo pipefail
 
-# On any error: log, push error log, shutdown
+# Prevent CUDA fragmentation OOM
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# On any error: log, push, shutdown
 on_error() {
-    local exit_code=$?
-    echo "=== ERROR at line $1 (exit $exit_code) ===" | tee -a error.log
-    date >> error.log
-    git add error.log train.log && git commit -m "Auto shutdown after error" && git push || true
-    /usr/bin/autodl shutdown 2>/dev/null || sudo shutdown -h now
+    echo "=== ERROR at $(date) ===" | tee -a error.log
+    echo "Exit code: $?" >> error.log
+    tail -50 train.log >> error.log 2>/dev/null || true
+    git add error.log && git commit -m "Auto shutdown after error — $(date -Isec)" && git push || true
+    /usr/bin/autodl shutdown 2>/dev/null || shutdown -h now || true
+    exit 1
 }
-trap 'on_error $LINENO' ERR
+trap on_error ERR
 
 MODEL_PATH="${1:-./Qwen3-0.6B}"
 OUT_DIR="out/sid_generator"
 EXP_DIR="exp/inference/devset"
+SCORE_DIR="exp/scores/devset"
 
 echo "=== Phase 1: Training ==="
 python src/sid/train_sid_generator.py \
@@ -31,11 +35,6 @@ python src/sid/train_sid_generator.py \
   --preset 5090 \
   --epochs 5
 
-echo "=== Git push (model checkpoint) ==="
-git add "$OUT_DIR" || true
-git commit -m "SID Generator model — $(date -I)" || true
-git push
-
 echo "=== Phase 2: Inference ==="
 python src/sid/sid_inference.py \
   --model_dir "$OUT_DIR" \
@@ -45,18 +44,19 @@ python src/sid/sid_inference.py \
   --out "$EXP_DIR/sid_generator.json"
 
 echo "=== Phase 3: Evaluation ==="
+mkdir -p "$SCORE_DIR"
 python src/evaluate.py \
   --inference "$EXP_DIR/sid_generator.json" \
-  --scores exp/scores/devset/sid_generator.json \
+  --scores "$SCORE_DIR/sid_generator.json" \
   --ground_truth exp/ground_truth/devset.json
 
 echo "=== Results ==="
-cat exp/scores/devset/sid_generator.json
+cat "$SCORE_DIR/sid_generator.json"
 
-echo "=== Phase 4: Git push (eval results) ==="
-git add exp/inference/devset/sid_generator.json exp/scores/devset/sid_generator.json
-git commit -m "SID Generator eval results — $(date -I)" || true
+echo "=== Git push results ==="
+git add "$EXP_DIR/sid_generator.json" "$SCORE_DIR/sid_generator.json"
+git commit -m "SID Generator results — $(date -Isec)" || true
 git push
 
 echo "=== Done, shutting down ==="
-/usr/bin/autodl shutdown 2>/dev/null || sudo shutdown -h now
+/usr/bin/autodl shutdown 2>/dev/null || shutdown -h now || true
