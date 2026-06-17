@@ -19,7 +19,10 @@ from pathlib import Path
 import torch
 from datasets import load_dataset
 from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import (
+    AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig,
+    LogitsProcessorList, LogitsProcessor,
+)
 from tqdm import tqdm
 
 PROMPT = """Given the conversation history and user preferences, predict the semantic ID of the next recommended track.
@@ -43,6 +46,8 @@ def load_model(model_dir: str, base_model: str = "Qwen/Qwen3-0.6B", device: str 
     )
     # Load tokenizer first (needed for vocab size)
     tokenizer = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
 
     # Load base model
@@ -61,35 +66,91 @@ def load_model(model_dir: str, base_model: str = "Qwen/Qwen3-0.6B", device: str 
     return model, tokenizer, sid_tokens
 
 
-def build_constrained_prefix(tokenizer, sid_tokens, sid_depth: int = 4):
-    """Build prefix allowed token mask for constrained SID generation."""
-    # Get SID token IDs
-    sid_ids = [tokenizer.convert_tokens_to_ids(t) for t in sid_tokens]
+def build_prefix_tree(sid_to_tracks: dict, tokenizer) -> dict:
+    """Build hash-based prefix tree: prefix → list of valid next token IDs.
+
+    For SID "<SID_7> <SID_48> <SID_80> <SID_139>" (7 tokens: 4 SID + 3 space):
+    "<SID_7>" → [space_id]
+    "<SID_7> " → [<SID_48>]
+    "<SID_7> <SID_48>" → [space_id]
+    ... (7 levels)
+    "<SID_7> <SID_48> <SID_80> <SID_139>" → [eos]
+    """
+    tree: dict[str, set] = {}
     eos_id = tokenizer.eos_token_id
-    return {
-        "allowed_ids": sid_ids + [eos_id],
-        "sid_ids": set(sid_ids),
-    }
+    space_str = " "
+
+    for sid_str in sid_to_tracks:
+        # Tokenize the full SID string: "<SID_7> <SID_48> <SID_80> <SID_139>"
+        tokens = tokenizer.encode(sid_str, add_special_tokens=False)
+        # Build prefixes at each step
+        for i in range(len(tokens)):
+            prefix_tokens = tokens[:i]
+            prefix_key = tokenizer.decode(prefix_tokens, skip_special_tokens=False)
+            next_token = tokens[i]
+            if prefix_key not in tree:
+                tree[prefix_key] = set()
+            tree[prefix_key].add(next_token)
+        # Complete SID → eos
+        full_key = sid_str
+        if full_key not in tree:
+            tree[full_key] = set()
+        tree[full_key].add(eos_id)
+
+    # Convert sets to lists
+    return {k: list(v) for k, v in tree.items()}
+
+
+class ConstrainedSIDLogitsProcessor(LogitsProcessor):
+    """MiniOneRec-style: hash prefix tree + log_softmax + -inf mask."""
+    def __init__(self, prefix_tree: dict, num_beams: int, eos_token_id: int):
+        self.prefix_tree = prefix_tree
+        self._num_beams = num_beams
+        self.eos_token_id = eos_token_id
+        self.step = 0
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        scores = torch.nn.functional.log_softmax(scores, dim=-1)
+        mask = torch.full_like(scores, float("-inf"))
+
+        for batch_id, beam_sent in enumerate(input_ids.view(-1, self._num_beams, input_ids.shape[-1])):
+            for beam_id, sent in enumerate(beam_sent):
+                # Extract the generated prefix (last `step` tokens)
+                if self.step == 0:
+                    # First step: empty prefix → start of SID
+                    prefix_key = ""
+                else:
+                    prefix_tokens = sent[-self.step:].tolist()
+                    prefix_key = tokenizer_internal.decode(prefix_tokens, skip_special_tokens=False)
+
+                allowed = self.prefix_tree.get(prefix_key, [])
+                if not allowed:
+                    # No valid continuation — force EOS
+                    mask[batch_id * self._num_beams + beam_id, self.eos_token_id] = 0
+                else:
+                    mask[batch_id * self._num_beams + beam_id, allowed] = 0
+
+        self.step += 1
+        return scores + mask
+
+
+# Global tokenizer reference for use inside processor (avoid closure issues)
+tokenizer_internal = None
 
 
 def batch_generate(model, tokenizer, sid_tokens: list[str], prompts: list[str],
-                   max_new_tokens: int = 32, num_beams: int = 20, num_return: int = 20):
-    """Generate SID sequences for a batch of prompts, constrained to SID tokens only."""
+                   prefix_tree: dict, max_new_tokens: int = 32,
+                   num_beams: int = 20, num_return: int = 20):
+    """Generate SID sequences with hash-based constrained beam search."""
+    global tokenizer_internal
+    tokenizer_internal = tokenizer
+
     inputs = tokenizer(prompts, return_tensors="pt", truncation=True,
                        max_length=512, padding=True).to(model.device)
     B = inputs["input_ids"].shape[0]
 
-    # Build allowed token list: <SID_x> tokens + space + eos + im_end
-    allowed_ids = [tokenizer.convert_tokens_to_ids(t) for t in sid_tokens]
-    space_id = tokenizer.convert_tokens_to_ids(" ")  # space between SID tokens
-    allowed_ids.extend([space_id, tokenizer.eos_token_id])
-    # Qwen3 uses <|im_end|> as end token
-    im_end = tokenizer.convert_tokens_to_ids("<|im_end|>")
-    if im_end != tokenizer.eos_token_id:
-        allowed_ids.append(im_end)
-
-    def prefix_allowed_fn(batch_id, input_ids):
-        return allowed_ids
+    clp = ConstrainedSIDLogitsProcessor(prefix_tree, num_beams, tokenizer.eos_token_id)
+    logits_processor = LogitsProcessorList([clp])
 
     with torch.no_grad():
         outputs = model.generate(
@@ -103,7 +164,7 @@ def batch_generate(model, tokenizer, sid_tokens: list[str], prompts: list[str],
             do_sample=False,
             output_scores=False,
             return_dict_in_generate=True,
-            prefix_allowed_tokens_fn=prefix_allowed_fn,
+            logits_processor=logits_processor,
         )
 
     # outputs.sequences shape: (B * num_return, seq_len)
@@ -207,6 +268,10 @@ def main():
         track_to_sid = json.load(f)
     print(f"[data] {len(sid_to_tracks)} unique SIDs, {len(track_to_sid)} tracks")
 
+    # Build prefix tree for constrained decoding
+    prefix_tree = build_prefix_tree(sid_to_tracks, tokenizer)
+    print(f"[tree] {len(prefix_tree)} prefix entries")
+
     # Load dataset
     ds = load_dataset("talkpl-ai/TalkPlayData-Challenge-Dataset", split=args.split, streaming=False)
     sessions = list(ds)
@@ -226,7 +291,7 @@ def main():
     for i in tqdm(range(0, len(prompts), INFER_BATCH), desc="generating"):
         batch_prompts = prompts[i : i + INFER_BATCH]
         batch_samples = all_samples[i : i + INFER_BATCH]
-        batch_sids = batch_generate(model, tokenizer, sid_tokens, batch_prompts)
+        batch_sids = batch_generate(model, tokenizer, sid_tokens, batch_prompts, prefix_tree)
 
         for sample, sids in zip(batch_samples, batch_sids):
             track_ids = []
