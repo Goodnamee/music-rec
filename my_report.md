@@ -1,3 +1,10 @@
 关键教训：把 2176d 直接 KMeans 量化 = 坍塌。加 MLP 压到 64d + EMA = 几乎是免费的（1 分钟），准确率从 16% 跳到 99.8%。
 
+样本的构造
+
+constraint SID
+
+
 SID训练损失是SID accuracy，有多少<SID>命中。不是，语言模型监督学习
+
+nohup bash scripts/train_eval_5090.sh > train.log 2>&1 &

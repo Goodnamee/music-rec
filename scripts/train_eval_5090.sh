@@ -28,12 +28,12 @@ SCORE_DIR="exp/scores/devset"
 
 echo "=== Phase 1: Training ==="
 python src/sid/train_sid_generator.py \
-  --train_pt data/sid_train_512.pt \
-  --eval_pt data/sid_eval_512.pt \
+  --train_pt data/sid_train_3tok_512.pt \
+  --eval_pt data/sid_eval_3tok_512.pt \
   --model_path "$MODEL_PATH" \
   --output_dir "$OUT_DIR" \
   --preset 5090 \
-  --epochs 5
+  --epochs 3
 
 echo "=== Phase 2: Inference ==="
 python src/sid/sid_inference.py \
