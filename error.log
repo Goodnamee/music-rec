@@ -6,3 +6,24 @@ nohup: ignoring input
 [preset] 5090: batch=32×1, 4bit=False, attn=sdpa
 Loading weights:   0%|          | 0/311 [00:00<?, ?it/s]scripts/train_eval_5090.sh: line 36:  2158 Killed                  python src/sid/train_sid_generator.py --train_pt data/sid_train_512.pt --eval_pt data/sid_eval_512.pt --model_path "$MODEL_PATH" --output_dir "$OUT_DIR" --preset 5090 --epochs 5
 === ERROR at Thu Jun 18 00:52:34 CST 2026 ===
+=== ERROR at Fri Jun 19 16:19:18 CST 2026 ===
+Exit code: 0
+nohup: ignoring input
+=== Phase 1: Training ===
+
+libgomp: Invalid value for environment variable OMP_NUM_THREADS
+
+libgomp: Invalid value for environment variable OMP_NUM_THREADS
+[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+[preset] 5090: batch=128×1, 4bit=False, attn=sdpa
+Loading weights:   0%|          | 0/311 [00:00<?, ?it/s]Loading weights:   0%|          | 1/311 [00:00<04:26,  1.16it/s]Loading weights:   7%|▋         | 21/311 [00:01<00:10, 26.95it/s]Loading weights:  12%|█▏        | 37/311 [00:01<00:06, 42.59it/s]Loading weights:  16%|█▌        | 50/311 [00:01<00:04, 55.49it/s]Loading weights:  21%|██        | 64/311 [00:01<00:03, 70.12it/s]Loading weights:  25%|██▌       | 78/311 [00:01<00:02, 80.83it/s]Loading weights:  30%|██▉       | 93/311 [00:01<00:02, 95.10it/s]Loading weights:  36%|███▌      | 111/311 [00:01<00:01, 114.58it/s]Loading weights:  41%|████      | 127/311 [00:01<00:01, 123.33it/s]Loading weights:  46%|████▌     | 143/311 [00:02<00:01, 122.42it/s]Loading weights:  50%|█████     | 157/311 [00:02<00:01, 119.89it/s]Loading weights:  55%|█████▍    | 170/311 [00:02<00:01, 113.13it/s]Loading weights:  59%|█████▉    | 185/311 [00:02<00:01, 119.70it/s]Loading weights:  64%|██████▎   | 198/311 [00:02<00:00, 118.84it/s]Loading weights:  68%|██████▊   | 211/311 [00:02<00:00, 114.34it/s]Loading weights:  72%|███████▏  | 225/311 [00:02<00:00, 115.97it/s]Loading weights:  76%|███████▌  | 237/311 [00:02<00:00, 115.07it/s]Loading weights:  83%|████████▎ | 258/311 [00:03<00:00, 116.56it/s]Loading weights:  89%|████████▊ | 276/311 [00:03<00:00, 129.24it/s]Loading weights:  96%|█████████▌| 298/311 [00:03<00:00, 150.04it/s]Loading weights: 100%|██████████| 311/311 [00:03<00:00, 93.89it/s] 
+trainable params: 2,293,760 || all params: 598,332,416 || trainable%: 0.3834
+[data] train=161592, eval=500, steps≈3786
+Traceback (most recent call last):
+  File "/root/music-rec/src/sid/train_sid_generator.py", line 279, in <module>
+    main()
+  File "/root/music-rec/src/sid/train_sid_generator.py", line 247, in main
+    fp16=preset["fp16"],
+         ~~~~~~^^^^^^^^
+KeyError: 'fp16'
+=== ERROR at Fri Jun 19 16:19:18 CST 2026 ===
