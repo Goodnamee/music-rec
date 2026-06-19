@@ -244,8 +244,11 @@ def main():
 
     model = AutoModelForCausalLM.from_pretrained(args.model_path, **model_kwargs)
     model.resize_token_embeddings(len(tokenizer))
-    # No gradient checkpointing — we have VRAM to spare (batch=128 uses ~50%)
-    # model.gradient_checkpointing_enable()
+    model.gradient_checkpointing_enable()
+
+    # tf32 boost on Blackwell (~15% faster matmuls)
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
 
     lora_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
@@ -299,9 +302,10 @@ def main():
         greater_is_better=False,
         fp16=preset.get("fp16", False),
         bf16=preset.get("bf16", False),
-        gradient_checkpointing=False,
+        gradient_checkpointing=True,
         report_to="none",
-        dataloader_num_workers=0,
+        dataloader_num_workers=4,
+        tf32=True,
         remove_unused_columns=False,
     )
 
