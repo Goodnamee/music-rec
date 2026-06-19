@@ -56,7 +56,8 @@ class LigerTrainer(Trainer):
             return super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
 
         # Forward through transformer body (skips lm_head → no logits materialized)
-        outputs = model.model(
+        base_model = model.get_base_model()  # unwrap PEFT → Qwen3ForCausalLM
+        outputs = base_model.model(  # Qwen3Model (transformer without lm_head)
             input_ids=inputs["input_ids"],
             attention_mask=inputs.get("attention_mask"),
         )
@@ -64,7 +65,7 @@ class LigerTrainer(Trainer):
 
         loss = _fused_ce(
             hidden_states,
-            model.lm_head.weight,
+            base_model.lm_head.weight,
             labels,
             ignore_index=-100,
         )
