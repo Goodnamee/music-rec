@@ -5,7 +5,7 @@
 # Set up git auth once before running:
 #   git config credential.helper store
 #   git push https://Goodnamee:TOKEN@github.com/Goodnamee/music-rec.git master
-set -euo pipefail
+set -eo pipefail
 
 # Prevent CUDA fragmentation OOM
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
@@ -15,8 +15,9 @@ on_error() {
     echo "=== ERROR at $(date) ===" | tee -a error.log
     echo "Exit code: $?" >> error.log
     tail -50 train.log >> error.log 2>/dev/null || true
-    git add error.log && git commit -m "Auto shutdown after error — $(date -Isec)" && git push || true
-    /usr/bin/autodl shutdown 2>/dev/null || shutdown -h now 2>/dev/null || poweroff
+    # git add error.log && git commit -m "Auto shutdown after error — $(date -Isec)" && git push || true
+    # AUTO-SHUTDOWN DISABLED FOR DEBUGGING
+    # /usr/bin/autodl shutdown 2>/dev/null || shutdown -h now 2>/dev/null || poweroff
     exit 1
 }
 trap on_error ERR
@@ -58,5 +59,6 @@ git add "$EXP_DIR/sid_generator.json" "$SCORE_DIR/sid_generator.json"
 git commit -m "SID Generator results — $(date -Isec)" || true
 git push
 
-echo "=== Done, shutting down ==="
-/usr/bin/autodl shutdown 2>/dev/null || shutdown -h now 2>/dev/null || poweroff
+echo "=== Done ==="
+# AUTO-SHUTDOWN DISABLED FOR DEBUGGING
+# /usr/bin/autodl shutdown 2>/dev/null || shutdown -h now 2>/dev/null || poweroff
