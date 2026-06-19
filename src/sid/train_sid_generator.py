@@ -85,7 +85,7 @@ SID:"""
 
 PRESETS = {
     "5090": {
-        "batch_size": 128, "grad_accum": 1,
+        "batch_size": 256, "grad_accum": 1,
         "eval_batch_size": 8, "use_4bit": False,
         "attn": "sdpa", "fp16": False, "bf16": True,
         "skip_eval": False,
