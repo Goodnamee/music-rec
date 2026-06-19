@@ -61,12 +61,12 @@ class LigerTrainer(Trainer):
             input_ids=inputs["input_ids"],
             attention_mask=inputs.get("attention_mask"),
         )
-        hidden_states = outputs.last_hidden_state
+        hidden_states = outputs.last_hidden_state  # [B, T, H]
 
         loss = _fused_ce(
-            hidden_states,
-            base_model.lm_head.weight,
-            labels,
+            hidden_states.view(-1, hidden_states.shape[-1]),  # [B*T, H]
+            base_model.lm_head.weight,                        # [V, H]
+            labels.view(-1),                                  # [B*T]
             ignore_index=-100,
         )
         return (loss, None) if return_outputs else loss
