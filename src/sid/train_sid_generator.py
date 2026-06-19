@@ -36,7 +36,7 @@ from tqdm import tqdm
 # 可选：liger-kernel fused CE loss，省 80% logits 显存，无损精度
 _LIGER_AVAILABLE = False
 try:
-    from liger_kernel.transformers.functional import liger_fused_linear_cross_entropy_loss as _fused_ce
+    from liger_kernel.transformers.functional import liger_fused_linear_cross_entropy as _fused_ce
     _LIGER_AVAILABLE = True
     print("[liger] fused CE kernel available")
 except ImportError:
