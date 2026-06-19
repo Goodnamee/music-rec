@@ -33,6 +33,14 @@ from transformers import (
 )
 from tqdm import tqdm
 
+# 可选：liger-kernel fused CE loss，省 80% logits 显存，无损精度
+try:
+    from liger_kernel.transformers import apply_liger_kernel_to_qwen2 as _apply_liger
+    _apply_liger()
+    print("[liger] fused cross-entropy enabled — logits VRAM saved")
+except ImportError:
+    print("[liger] not installed, fallback to standard loss")
+
 SID_CODEBOOK_SIZE = 256
 SID_TOKENS = [f"<SID_{i}>" for i in range(SID_CODEBOOK_SIZE)]
 # SID_DEPTH = number of SID tokens per track — auto-detected from training data output.
@@ -47,7 +55,7 @@ SID:"""
 
 PRESETS = {
     "5090": {
-        "batch_size": 128, "grad_accum": 1,
+        "batch_size": 64, "grad_accum": 2,
         "eval_batch_size": 8, "use_4bit": False,
         "attn": "sdpa", "fp16": False, "bf16": True,
         "skip_eval": False,
@@ -213,7 +221,7 @@ def main():
         r=args.lora_r,
         lora_alpha=args.lora_alpha,
         lora_dropout=args.lora_dropout,
-        target_modules=["q_proj", "v_proj"],
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
     )
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
