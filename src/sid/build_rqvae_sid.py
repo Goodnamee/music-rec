@@ -344,6 +344,16 @@ def save_outputs(
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # Per-layer utilization
+    layer_utils = [len(set(codes[:, l].tolist())) for l in range(codes.shape[1])]
+    collapsed_layers = [l for l, u in enumerate(layer_utils) if u <= 1]
+    active_layers = [l for l in range(codes.shape[1]) if l not in collapsed_layers]
+
+    print(f"\n[layer_utilization] {layer_utils}")
+    if collapsed_layers:
+        print(f"[collapse] Layer(s) {collapsed_layers} collapsed (≤1 unique code) → will auto-generate stripped outputs")
+
+    # Full-depth outputs
     track_to_sid: dict = {}
     sid_to_tracks: dict = defaultdict(list)
     for tid, row_codes in zip(track_ids, codes):
@@ -365,6 +375,32 @@ def save_outputs(
         json.dump(track_ids, f, ensure_ascii=False)
     np.save(out_dir / "codes.npy", codes)
 
+    # Auto-generate stripped version if any layer collapsed
+    stripped_depth = None
+    if collapsed_layers:
+        stripped_depth = len(active_layers)
+        stripped_codes = codes[:, active_layers]
+        stripped_track_to_sid: dict = {}
+        stripped_sid_to_tracks: dict = defaultdict(list)
+        for tid, row_codes in zip(track_ids, stripped_codes):
+            sid = [int(c) for c in row_codes]
+            sid_str = sid_token_string(sid, args.token_prefix)
+            stripped_track_to_sid[tid] = {"sid": sid, "sid_str": sid_str}
+            stripped_sid_to_tracks[sid_str].append(tid)
+
+        suffix = f"_{stripped_depth}tok"
+        with open(out_dir / f"track_to_sid{suffix}.json", "w", encoding="utf-8") as f:
+            json.dump(stripped_track_to_sid, f, ensure_ascii=False, indent=1)
+        with open(out_dir / f"sid_to_tracks{suffix}.json", "w", encoding="utf-8") as f:
+            json.dump(dict(stripped_sid_to_tracks), f, ensure_ascii=False, indent=1)
+
+        s_counts = Counter(len(v) for v in stripped_sid_to_tracks.values())
+        s_unique = len(stripped_sid_to_tracks)
+        s_collided = sum(len(v) for v in stripped_sid_to_tracks.values() if len(v) > 1)
+        print(f"[stripped_{stripped_depth}tok] unique_sids={s_unique}/{n_tracks} ({s_unique/n_tracks*100:.1f}%) "
+              f"collision_tracks={s_collided} "
+              f"(dropped layers {collapsed_layers})")
+
     codebooks = {}
     for l, vq in enumerate(model.rq.layers):
         codebooks[f"level_{l}"] = vq.embedding.detach().cpu().numpy()
@@ -372,6 +408,14 @@ def save_outputs(
 
     torch.save(model.state_dict(), out_dir / "rqvae_model.pt")
 
+    outputs_meta = {
+        "track_to_sid": "track_to_sid.json",
+        "sid_to_tracks": "sid_to_tracks.json",
+        "track_ids": "track_ids.json",
+        "codes": "codes.npy",
+        "codebooks": "codebooks.npz",
+        "model": "rqvae_model.pt",
+    }
     metadata = {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "method": "rqvae_mlp_bottleneck_ema",
@@ -384,27 +428,39 @@ def save_outputs(
         "token_prefix": args.token_prefix,
         "epochs": int(args.epochs),
         "batch_size": int(args.batch_size),
+        "layer_utilization": layer_utils,
+        "collapsed_layers": collapsed_layers,
+        "effective_depth": stripped_depth or int(args.depth),
         "unique_sid_count": n_unique,
         "collision_sid_count": sum(1 for v in sid_to_tracks.values() if len(v) > 1),
         "collided_track_count": n_collided,
         "collision_bucket_size_histogram": {str(k): int(v) for k, v in sorted(counts.items())},
         "final_recon_loss": history[-1]["recon_loss"],
         "history": history,
-        "outputs": {
-            "track_to_sid": "track_to_sid.json",
-            "sid_to_tracks": "sid_to_tracks.json",
-            "track_ids": "track_ids.json",
-            "codes": "codes.npy",
-            "codebooks": "codebooks.npz",
-            "model": "rqvae_model.pt",
-        },
+        "outputs": outputs_meta,
     }
+
+    if stripped_depth:
+        suffix = f"_{stripped_depth}tok"
+        outputs_meta[f"track_to_sid{suffix}"] = f"track_to_sid{suffix}.json"
+        outputs_meta[f"sid_to_tracks{suffix}"] = f"sid_to_tracks{suffix}.json"
+        metadata["stripped_outputs"] = {
+            "effective_depth": stripped_depth,
+            "dropped_layers": collapsed_layers,
+            "track_to_sid": f"track_to_sid{suffix}.json",
+            "sid_to_tracks": f"sid_to_tracks{suffix}.json",
+        }
+
     with open(out_dir / "metadata.json", "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
 
     print(f"\n[out] {out_dir}")
-    print(f"[stats] unique_sids={n_unique}/{n_tracks} ({n_unique/n_tracks*100:.1f}%)")
+    print(f"[stats] depth={args.depth} unique_sids={n_unique}/{n_tracks} ({n_unique/n_tracks*100:.1f}%)")
+    print(f"[stats] layer_utilization={layer_utils}")
     print(f"[stats] collision_sids={metadata['collision_sid_count']} collided_tracks={n_collided}")
+    if stripped_depth:
+        print(f"[stats] effective_depth={stripped_depth} (layers {collapsed_layers} collapsed → stripped)")
+        print(f"[stats] use track_to_sid_{stripped_depth}tok.json for SID Generator training")
 
 
 # ---------------------------------------------------------------------------

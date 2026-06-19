@@ -33,9 +33,11 @@ from transformers import (
 )
 from tqdm import tqdm
 
-SID_DEPTH = 3
 SID_CODEBOOK_SIZE = 256
 SID_TOKENS = [f"<SID_{i}>" for i in range(SID_CODEBOOK_SIZE)]
+# SID_DEPTH = number of SID tokens per track — auto-detected from training data output.
+# e.g. "<SID_7> <SID_48> <SID_80>" → depth = 3
+SID_DEPTH = None  # will be set after counting tokens in first sample
 
 PROMPT = """Given the conversation history and user preferences, predict the semantic ID of the next recommended track.
 
@@ -45,9 +47,9 @@ SID:"""
 
 PRESETS = {
     "5090": {
-        "batch_size": 32, "grad_accum": 1,
-        "eval_batch_size": 4, "use_4bit": False,
-        "attn": "flash_attention_2", "fp16": True,
+        "batch_size": 128, "grad_accum": 1,
+        "eval_batch_size": 8, "use_4bit": False,
+        "attn": "sdpa", "fp16": False, "bf16": True,
         "skip_eval": False,
     },
     "local": {
@@ -194,9 +196,11 @@ def main():
     if preset["use_4bit"]:
         model_kwargs["quantization_config"] = BitsAndBytesConfig(
             load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_compute_dtype=torch.bfloat16 if preset.get("bf16") else torch.float16,
             bnb_4bit_use_double_quant=True,
         )
+    elif preset.get("bf16"):
+        model_kwargs["torch_dtype"] = torch.bfloat16
     else:
         model_kwargs["torch_dtype"] = torch.float16
 
@@ -226,6 +230,16 @@ def main():
         total_steps = min(total_steps, args.max_steps)
     print(f"[data] train={len(train_dataset)}, eval={len(eval_dataset)}, steps≈{total_steps}")
 
+    # Auto-detect SID_DEPTH: count how many <SID_*> tokens are in first sample's labels.
+    # Labels are like: [-100, ..., -100, <SID_237>, " ", <SID_142>, " ", <SID_87>, <eos>]
+    # So non-masked count = depth + (depth-1 spaces) + 1 eos. We count only <SID_*>.
+    first_labels = train_dataset[0]["labels"]
+    sid_ids = set(tokenizer.convert_tokens_to_ids(SID_TOKENS))
+    sid_depth = sum(1 for t in first_labels if t in sid_ids)
+    global SID_DEPTH
+    SID_DEPTH = sid_depth
+    print(f"[sid] auto-detected depth={SID_DEPTH} (non_masked={sum(1 for t in first_labels if t != -100)})")
+
     training_args = TrainingArguments(
         output_dir=args.output_dir,
         per_device_train_batch_size=preset["batch_size"],
@@ -244,7 +258,8 @@ def main():
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
-        fp16=preset["fp16"],
+        fp16=preset.get("fp16", False),
+        bf16=preset.get("bf16", False),
         gradient_checkpointing=True,
         report_to="none",
         dataloader_num_workers=0,

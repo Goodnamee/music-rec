@@ -53,6 +53,84 @@
 
 **不需要重排**。Playlist 信号已经通过 concat 进入 SID Generator，模型一步完成"理解对话 + 理解用户"。重排是 Vision A 的思维。
 
+### Playlist 注入实现计划（Phase 2 提升项）
+
+**状态**：❌ 未实现。当前 SID Generator 只用对话历史 + user_culture，没有 playlist embedding。
+
+#### 输入构造
+
+对每个 session 的每个 turn，从已接受的 track 提取 playlist signal：
+
+```
+turn 1: playlist = []                    → global prior (cf-bpr)
+turn 2: playlist = [track_1]             → 1 track embedding
+turn 3: playlist = [track_1, track_2]    → 2 track embeddings
+...
+turn N: playlist = [track_1, ..., track_{N-1}] → N-1 track embeddings
+```
+
+每个 track 的 embedding 来源（已在 `exp/sid/multimodal_2176d/embeddings.npy` 中）：
+- attributes-qwen3: 1024d
+- lyrics-qwen3: 1024d
+- cf-bpr: 128d
+- 合计 2176d（L2 normalized，可直接复用）
+
+#### 两种注入方案
+
+| 方案 | 方法 | 优点 | 缺点 |
+|---|---|---|---|
+| **A: Text 注入** | playlist mean pooling → 找最近邻 track → 描述拼进 prompt | 改动最小，不改模型 | 信息损失大 |
+| **B: Embedding 注入** | playlist → attention pooling → user_emb token → concat 进 decoder | 信息完整，端到端 | 需改模型架构 |
+
+**推荐先用方案 A 快速验证，方案 B 长期更好。**
+
+#### 方案 A 实现步骤（Text 注入，~2h）
+
+1. **构建 track embedding 索引**：`src/sid/build_track_index.py`
+   - 加载 `embeddings.npy` + `track_ids.txt` → faiss IndexFlatIP
+   - 加载 metadata（track_name, artist_name, genres）→ 描述文本映射
+
+2. **改造 `build_training_data.py`**：
+   - 每个 turn 收集已接受 track 的 embedding → mean pooling
+   - 用 faiss 找 top-3 最近邻 track（泛化到未见 track）
+   - 拼成：`"User listens to: {track1_desc}; {track2_desc}; {track3_desc}"`
+   - 加入 input parts
+
+3. **改造 `sid_inference.py` 的 `build_session_inputs`**：
+   - 同上逻辑，推理时实时查
+
+#### 方案 B 实现步骤（Embedding 注入，~1d）
+
+1. **Attention pooling 模块**（`src/sid/playlist_encoder.py`）：
+   ```python
+   class PlaylistEncoder(nn.Module):
+       # 2176d track embeddings → multi-head self-attention → mean pool → 2176d user_vector
+       # 空 playlist 时输出可学习的 <empty> embedding
+   ```
+
+2. **注入 SID Generator**：
+   - 在 decoder input 前 concat 一个 `[USER_EMB]` token，token embedding = projected user_vector
+   - 或：在每个 transformer layer 的 cross-attention 中注入（改动更大）
+
+3. **训练改动**：
+   - `train_sid_generator.py`：dataset 增加 `user_emb` 字段
+   - 冻结 Qwen3 主体，只 train LoRA + playlist encoder
+   - 新增 special token `<USER_EMB>`，embedding 由 playlist encoder 输出替换
+
+4. **推理改动**：
+   - `sid_inference.py`：每个 turn 实时算 playlist embedding 再生成
+
+#### 数据流总结
+
+```
+Session track_ids (已接受) 
+  → exp/sid/multimodal_2176d/embeddings.npy 查表 
+  → attention pooling (方案B) / mean+检索 (方案A)
+  → user_vector / 描述文本 
+  → concat 进 SID Generator input
+  → 一步生成 SID
+```
+
 ## 架构定位
 
 **Vision B（采用）：SID Generator 是唯一推荐引擎，砍掉 BM25/dense。**
