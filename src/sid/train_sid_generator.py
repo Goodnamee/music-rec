@@ -34,12 +34,41 @@ from transformers import (
 from tqdm import tqdm
 
 # 可选：liger-kernel fused CE loss，省 80% logits 显存，无损精度
+_LIGER_AVAILABLE = False
 try:
-    from liger_kernel.transformers import apply_liger_kernel_to_qwen2 as _apply_liger
-    _apply_liger()
-    print("[liger] fused cross-entropy enabled — logits VRAM saved")
+    from liger_kernel.transformers.functional import liger_fused_linear_cross_entropy_loss as _fused_ce
+    _LIGER_AVAILABLE = True
+    print("[liger] fused CE kernel available")
 except ImportError:
     print("[liger] not installed, fallback to standard loss")
+
+
+class LigerTrainer(Trainer):
+    """Custom Trainer that uses liger-kernel fused linear+CE loss.
+
+    Instead of materializing [B*T, V] logits in fp32, it passes the last
+    hidden state + lm_head.weight directly to liger's fused kernel which
+    computes loss on-the-fly — saving 80%+ of the loss VRAM.
+    """
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        labels = inputs.get("labels")
+        if labels is None or not _LIGER_AVAILABLE:
+            return super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
+
+        # Forward through transformer body (skips lm_head → no logits materialized)
+        outputs = model.model(
+            input_ids=inputs["input_ids"],
+            attention_mask=inputs.get("attention_mask"),
+        )
+        hidden_states = outputs.last_hidden_state
+
+        loss = _fused_ce(
+            hidden_states,
+            model.lm_head.weight,
+            labels,
+            ignore_index=-100,
+        )
+        return (loss, None) if return_outputs else loss
 
 SID_CODEBOOK_SIZE = 256
 SID_TOKENS = [f"<SID_{i}>" for i in range(SID_CODEBOOK_SIZE)]
@@ -274,7 +303,8 @@ def main():
         remove_unused_columns=False,
     )
 
-    trainer = Trainer(
+    trainer_cls = LigerTrainer if _LIGER_AVAILABLE else Trainer
+    trainer = trainer_cls(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
