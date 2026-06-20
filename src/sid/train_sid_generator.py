@@ -89,10 +89,10 @@ SID:"""
 
 PRESETS = {
     "5090": {
-        "batch_size": 96, "grad_accum": 1,
+        "batch_size": 64, "grad_accum": 4,
         "eval_batch_size": 8, "use_4bit": False,
         "attn": "sdpa", "fp16": False, "bf16": True,
-        "skip_eval": True,
+        "skip_eval": False,
         "no_ckpt": True,
     },
     "local": {
@@ -209,7 +209,7 @@ def main():
     p.add_argument("--lora_alpha", type=int, default=32)
     p.add_argument("--lora_dropout", type=float, default=0.05)
     p.add_argument("--save_steps", type=int, default=500)
-    p.add_argument("--eval_steps", type=int, default=2000)
+    p.add_argument("--eval_steps", type=int, default=500)
     p.add_argument("--logging_steps", type=int, default=100)
     p.add_argument("--max_steps", type=int, default=-1)
     p.add_argument("--max_eval_samples", type=int, default=500)
@@ -254,9 +254,10 @@ def main():
     else:
         print("[ckpt] disabled — trading VRAM for speed")
 
-    # tf32 boost on Blackwell (~15% faster matmuls)
+    # tf32 + flash SDP for Blackwell (free speedup)
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
+    torch.set_float32_matmul_precision("high")
 
     lora_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
@@ -267,6 +268,15 @@ def main():
     )
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
+
+    # Compile transformer body (compatible with LigerTrainer custom path)
+    if preset.get("compile", True):
+        try:
+            base = model.get_base_model()
+            base.model = torch.compile(base.model, mode="reduce-overhead")
+            print("[compile] transformer body compiled (reduce-overhead)")
+        except Exception as e:
+            print(f"[compile] failed: {e}")
 
     # Data
     train_dataset = PTDataset(args.train_pt)
