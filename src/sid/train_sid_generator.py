@@ -265,9 +265,22 @@ def main():
         lora_alpha=args.lora_alpha,
         lora_dropout=args.lora_dropout,
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-        modules_to_save=["embed_tokens", "lm_head"],
     )
     model = get_peft_model(model, lora_config)
+
+    # Only train the 256 new SID token rows — freeze the 152K original vocab rows.
+    # Qwen3 ties embed_tokens == lm_head, so a single gradient hook covers both.
+    embed_weight = model.get_input_embeddings().weight
+    embed_weight.requires_grad = True
+    old_vocab = embed_weight.shape[0] - 256
+
+    def _freeze_old_grad(grad):
+        grad[:old_vocab] = 0.0
+        return grad
+
+    embed_weight.register_hook(_freeze_old_grad)
+    print(f"[sid-embed] only last 256/{embed_weight.shape[0]} rows trainable (old_vocab={old_vocab})")
+
     model.print_trainable_parameters()
 
     # torch.compile disabled — incompatible with LigerTrainer custom forward path
