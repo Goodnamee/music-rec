@@ -92,8 +92,8 @@ PRESETS = {
         "batch_size": 96, "grad_accum": 1,
         "eval_batch_size": 8, "use_4bit": False,
         "attn": "sdpa", "fp16": False, "bf16": True,
-        "skip_eval": False,
-        "no_ckpt": True,  # try without gradient checkpointing
+        "skip_eval": True,
+        "no_ckpt": True,
     },
     "local": {
         "batch_size": 8, "grad_accum": 4,
@@ -305,8 +305,8 @@ def main():
         save_strategy="steps",
         save_steps=args.save_steps,
         save_total_limit=3,
-        load_best_model_at_end=True,
-        metric_for_best_model="eval_loss",
+        load_best_model_at_end=not preset.get("skip_eval", False),
+        metric_for_best_model="eval_loss" if not preset.get("skip_eval") else None,
         greater_is_better=False,
         fp16=preset.get("fp16", False),
         bf16=preset.get("bf16", False),
