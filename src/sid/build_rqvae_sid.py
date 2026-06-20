@@ -330,8 +330,11 @@ def train_rqvae(
 # Output
 # ---------------------------------------------------------------------------
 
-def sid_token_string(codes: list[int], prefix: str = "SID") -> str:
-    return " ".join(f"<{prefix}_{int(c)}>" for c in codes)
+SID_LEVEL_PREFIXES = ["a", "b", "c", "d", "e", "f", "g", "h"]
+
+def sid_token_string(codes: list[int], _prefix: str = None) -> str:
+    """Convert integer codes to per-level SID token string: <a_7> <b_48> <c_80> <d_139>."""
+    return " ".join(f"<{SID_LEVEL_PREFIXES[i]}_{int(c)}>" for i, c in enumerate(codes))
 
 
 def save_outputs(
@@ -358,7 +361,7 @@ def save_outputs(
     sid_to_tracks: dict = defaultdict(list)
     for tid, row_codes in zip(track_ids, codes):
         sid = [int(c) for c in row_codes]
-        sid_str = sid_token_string(sid, args.token_prefix)
+        sid_str = sid_token_string(sid)
         track_to_sid[tid] = {"sid": sid, "sid_str": sid_str}
         sid_to_tracks[sid_str].append(tid)
 
@@ -384,7 +387,7 @@ def save_outputs(
         stripped_sid_to_tracks: dict = defaultdict(list)
         for tid, row_codes in zip(track_ids, stripped_codes):
             sid = [int(c) for c in row_codes]
-            sid_str = sid_token_string(sid, args.token_prefix)
+            sid_str = sid_token_string(sid)
             stripped_track_to_sid[tid] = {"sid": sid, "sid_str": sid_str}
             stripped_sid_to_tracks[sid_str].append(tid)
 
@@ -425,7 +428,7 @@ def save_outputs(
         "n_tracks": n_tracks,
         "depth": int(args.depth),
         "codebook_size": int(args.codebook_size),
-        "token_prefix": args.token_prefix,
+        "token_prefixes": SID_LEVEL_PREFIXES,
         "epochs": int(args.epochs),
         "batch_size": int(args.batch_size),
         "layer_utilization": layer_utils,
@@ -482,7 +485,6 @@ def parse_args():
     p.add_argument("--commitment_weight", type=float, default=1.0)
     p.add_argument("--dropout", type=float, default=0.0)
     p.add_argument("--kmeans_sample", type=int, default=20000)
-    p.add_argument("--token_prefix", default="SID")
     p.add_argument("--device", default="cuda")
     p.add_argument("--seed", type=int, default=42)
     return p.parse_args()

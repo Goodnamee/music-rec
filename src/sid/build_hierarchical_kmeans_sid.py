@@ -29,8 +29,10 @@ from sklearn.cluster import MiniBatchKMeans
 from build_residual_kmeans_sid import TRACK_FIELDS, load_track_matrix
 
 
+SID_LEVEL_PREFIXES = ["a", "b", "c", "d", "e", "f", "g", "h"]
+
 def sid_tokens(codes: list[int] | np.ndarray) -> list[str]:
-    return [f"<SID{i}_{int(c)}>" for i, c in enumerate(codes)]
+    return [f"<{SID_LEVEL_PREFIXES[i]}_{int(c)}>" for i, c in enumerate(codes)]
 
 
 def sid_str(codes: list[int] | np.ndarray) -> str:

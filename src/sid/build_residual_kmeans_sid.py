@@ -124,8 +124,11 @@ def fit_residual_kmeans(
     return codes, codebooks, reconstruction
 
 
-def sid_to_token(codes: list[int] | np.ndarray, prefix: str = "SID") -> str:
-    return " ".join(f"<{prefix}_{int(c)}>" for c in codes)
+SID_LEVEL_PREFIXES = ["a", "b", "c", "d", "e", "f", "g", "h"]  # per-level prefixes
+
+def sid_to_token(codes: list[int] | np.ndarray, _prefix: str = None) -> str:
+    """Convert integer codes to per-level SID token string: <a_7> <b_48> <c_80> <d_139>."""
+    return " ".join(f"<{SID_LEVEL_PREFIXES[i]}_{int(c)}>" for i, c in enumerate(codes))
 
 
 def write_outputs(
@@ -143,7 +146,7 @@ def write_outputs(
     sid_to_tracks: dict[str, list[str]] = defaultdict(list)
     for tid, row_codes in zip(track_ids, codes):
         sid = [int(c) for c in row_codes]
-        sid_str = sid_to_token(sid, args.token_prefix)
+        sid_str = sid_to_token(sid)
         track_to_sid[tid] = {
             "sid": sid,
             "sid_str": sid_str,
@@ -175,7 +178,7 @@ def write_outputs(
         "n_tracks": n_tracks,
         "depth": int(args.depth),
         "n_clusters": int(args.n_clusters),
-        "token_prefix": args.token_prefix,
+        "token_prefixes": SID_LEVEL_PREFIXES[:len(codes[0])],
         "batch_size": int(args.batch_size),
         "max_iter": int(args.max_iter),
         "seed": int(args.seed),
@@ -213,7 +216,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--batch_size", type=int, default=2048)
     p.add_argument("--max_iter", type=int, default=100)
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--token_prefix", default="SID")
     return p.parse_args()
 
 

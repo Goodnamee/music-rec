@@ -1,6 +1,6 @@
 """SID Generator inference: dialogue → beam-search SIDs → track_ids → eval JSON.
 
-Constrained decoding: only valid <SID_x> tokens are allowed.
+Constrained decoding: only valid per-level SID tokens (e.g. <a_x>, <b_x>, ...) are allowed.
 Beam search produces 20 diverse SID candidates naturally.
 
 Usage:
@@ -75,19 +75,18 @@ def load_model(model_dir: str, base_model: str = "Qwen/Qwen3-0.6B", device: str 
 def build_prefix_tree(sid_to_tracks: dict, tokenizer) -> dict:
     """Build hash-based prefix tree: prefix → list of valid next token IDs.
 
-    For SID "<SID_7> <SID_48> <SID_80> <SID_139>" (7 tokens: 4 SID + 3 space):
-    "<SID_7>" → [space_id]
-    "<SID_7> " → [<SID_48>]
-    "<SID_7> <SID_48>" → [space_id]
-    ... (7 levels)
-    "<SID_7> <SID_48> <SID_80> <SID_139>" → [eos]
+    For SID "<a_7> <b_48> <c_80> <d_139>" (4 SID tokens):
+    "<a_7>" → [space_id]
+    "<a_7> " → [<b_48>]
+    ...
+    "<a_7> <b_48> <c_80> <d_139>" → [eos]
     """
     tree: dict[str, set] = {}
     eos_id = tokenizer.eos_token_id
     space_str = " "
 
     for sid_str in sid_to_tracks:
-        # Tokenize the full SID string: "<SID_7> <SID_48> <SID_80> <SID_139>"
+        # Tokenize the full SID string: "<a_7> <b_48> <c_80> <d_139>"
         tokens = tokenizer.encode(sid_str, add_special_tokens=False)
         # Build prefixes at each step
         for i in range(len(tokens)):

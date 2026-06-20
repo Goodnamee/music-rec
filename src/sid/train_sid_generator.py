@@ -75,10 +75,13 @@ class LigerTrainer(Trainer):
         )
         return loss
 
-SID_CODEBOOK_SIZE = 256
-SID_TOKENS = [f"<SID_{i}>" for i in range(SID_CODEBOOK_SIZE)]
+SID_CODEBOOK_SIZE = 256  # per-level codebook
+SID_LEVEL_PREFIXES = ["a", "b", "c", "d", "e", "f", "g", "h"]  # one per RQ level
+SID_TOKENS = [
+    f"<{p}_{i}>" for p in SID_LEVEL_PREFIXES for i in range(SID_CODEBOOK_SIZE)
+]  # e.g. <a_7> <b_48> <c_80> <d_139> — each level has its own 256-token vocab
 # SID_DEPTH = number of SID tokens per track — auto-detected from training data output.
-# e.g. "<SID_7> <SID_48> <SID_80>" → depth = 3
+# e.g. "<a_7> <b_48> <c_80> <d_139>" → depth = 4
 SID_DEPTH = None  # will be set after counting tokens in first sample
 
 PROMPT = """Given the conversation history and user preferences, predict the semantic ID of the next recommended track.
