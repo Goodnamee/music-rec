@@ -322,7 +322,7 @@ def main():
     )
 
     trainer_cls = LigerTrainer if _LIGER_AVAILABLE else Trainer
-    callbacks = [] if preset.get("skip_eval") else [EarlyStoppingCallback(early_stopping_patience=3)]
+    callbacks = [] if preset.get("skip_eval") else [EarlyStoppingCallback(early_stopping_patience=4)]
     trainer = trainer_cls(
         model=model,
         args=training_args,
