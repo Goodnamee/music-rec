@@ -29,8 +29,8 @@ SCORE_DIR="exp/scores/devset"
 
 echo "=== Phase 1: Training ==="
 python src/sid/train_sid_generator.py \
-  --train_pt data/sid_train_3tok_512.pt \
-  --eval_pt data/sid_eval_3tok_512.pt \
+  --train_pt data/sid_train_512.pt \
+  --eval_pt data/sid_eval_512.pt \
   --model_path "$MODEL_PATH" \
   --output_dir "$OUT_DIR" \
   --preset 5090 \
@@ -40,8 +40,8 @@ echo "=== Phase 2: Inference ==="
 python src/sid/sid_inference.py \
   --model_dir "$OUT_DIR" \
   --model_path "$MODEL_PATH" \
-  --sid_to_tracks exp/sid/rqvae_2176d_d4_k256/sid_to_tracks_3tok.json \
-  --track_to_sid exp/sid/rqvae_2176d_d4_k256/track_to_sid_3tok.json \
+  --sid_to_tracks exp/sid/rqvae_2176d_d3_k256_l128/sid_to_tracks.json \
+  --track_to_sid exp/sid/rqvae_2176d_d3_k256_l128/track_to_sid.json \
   --out "$EXP_DIR/sid_generator.json"
 
 echo "=== Phase 3: Evaluation ==="
