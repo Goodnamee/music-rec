@@ -1,16 +1,12 @@
 #!/bin/bash
-# Run on RTX 5090: train → infer → eval → git push → shutdown
+# Run on RTX 5090: train → shutdown (no git)
 # Usage: nohup bash scripts/train_eval_5090.sh > train.log 2>&1 &
-#
-# Set up git auth once before running:
-#   git config credential.helper store
-#   git push https://Goodnamee:TOKEN@github.com/Goodnamee/music-rec.git master
 set -eo pipefail
 
 # Prevent CUDA fragmentation OOM
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-# On any error: log, push, shutdown
+# On any error: log, shutdown (no git)
 on_error() {
     echo "=== ERROR at $(date) ===" | tee -a error.log
     echo "Exit code: $?" >> error.log
@@ -24,8 +20,6 @@ trap on_error ERR
 
 MODEL_PATH="${1:-./Qwen3-0.6B}"
 OUT_DIR="out/sid_generator"
-EXP_DIR="exp/inference/devset"
-SCORE_DIR="exp/scores/devset"
 
 echo "=== Phase 1: Training ==="
 python src/sid/train_sid_generator.py \
@@ -35,29 +29,6 @@ python src/sid/train_sid_generator.py \
   --output_dir "$OUT_DIR" \
   --preset 5090 \
   --epochs 3
-
-echo "=== Phase 2: Inference ==="
-python src/sid/sid_inference.py \
-  --model_dir "$OUT_DIR" \
-  --model_path "$MODEL_PATH" \
-  --sid_to_tracks exp/sid/rqvae_2176d_d4_k256_3tok/sid_to_tracks.json \
-  --track_to_sid exp/sid/rqvae_2176d_d4_k256_3tok/track_to_sid.json \
-  --out "$EXP_DIR/sid_generator.json"
-
-echo "=== Phase 3: Evaluation ==="
-mkdir -p "$SCORE_DIR"
-python src/evaluate.py \
-  --inference "$EXP_DIR/sid_generator.json" \
-  --scores "$SCORE_DIR/sid_generator.json" \
-  --ground_truth exp/ground_truth/devset.json
-
-echo "=== Results ==="
-cat "$SCORE_DIR/sid_generator.json"
-
-echo "=== Git push results ==="
-git add "$EXP_DIR/sid_generator.json" "$SCORE_DIR/sid_generator.json"
-git commit -m "SID Generator results — $(date -Isec)" || true
-git push
 
 echo "=== Done ==="
 # AUTO-SHUTDOWN DISABLED FOR DEBUGGING
