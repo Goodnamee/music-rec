@@ -254,10 +254,11 @@ def main():
     else:
         print("[ckpt] disabled — trading VRAM for speed")
 
-    # tf32 + flash SDP for Blackwell (free speedup)
+    # tf32 + flash SDP for Blackwell
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
     torch.set_float32_matmul_precision("high")
+    torch.backends.cuda.enable_flash_sdp(True)
 
     lora_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
@@ -269,14 +270,7 @@ def main():
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
-    # Compile transformer body (compatible with LigerTrainer custom path)
-    if preset.get("compile", True):
-        try:
-            base = model.get_base_model()
-            base.model = torch.compile(base.model, mode="reduce-overhead")
-            print("[compile] transformer body compiled (reduce-overhead)")
-        except Exception as e:
-            print(f"[compile] failed: {e}")
+    # torch.compile disabled — incompatible with LigerTrainer custom forward path
 
     # Data
     train_dataset = PTDataset(args.train_pt)
