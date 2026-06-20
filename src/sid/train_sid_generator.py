@@ -228,6 +228,7 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    original_vocab_size = len(tokenizer)
     tokenizer.add_tokens(SID_TOKENS)
 
     # Model
@@ -268,18 +269,20 @@ def main():
     )
     model = get_peft_model(model, lora_config)
 
-    # Only train the 256 new SID token rows — freeze the 152K original vocab rows.
+    # Only train the new SID token rows — freeze the original vocab rows.
     # Qwen3 ties embed_tokens == lm_head, so a single gradient hook covers both.
+    # Same approach as minionerec_lite (sft_lora.py:234-243).
     embed_weight = model.get_input_embeddings().weight
     embed_weight.requires_grad = True
-    old_vocab = embed_weight.shape[0] - 256
 
     def _freeze_old_grad(grad):
-        grad[:old_vocab] = 0.0
+        grad[:original_vocab_size] = 0.0
         return grad
 
     embed_weight.register_hook(_freeze_old_grad)
-    print(f"[sid-embed] only last 256/{embed_weight.shape[0]} rows trainable (old_vocab={old_vocab})")
+    n_new = embed_weight.shape[0] - original_vocab_size
+    print(f"[sid-embed] only {n_new}/{embed_weight.shape[0]} new token rows trainable "
+          f"(original_vocab={original_vocab_size})")
 
     model.print_trainable_parameters()
 
