@@ -89,10 +89,11 @@ SID:"""
 
 PRESETS = {
     "5090": {
-        "batch_size": 256, "grad_accum": 1,
+        "batch_size": 96, "grad_accum": 1,
         "eval_batch_size": 8, "use_4bit": False,
         "attn": "sdpa", "fp16": False, "bf16": True,
         "skip_eval": False,
+        "no_ckpt": True,  # try without gradient checkpointing
     },
     "local": {
         "batch_size": 8, "grad_accum": 4,
@@ -248,7 +249,10 @@ def main():
 
     model = AutoModelForCausalLM.from_pretrained(args.model_path, **model_kwargs)
     model.resize_token_embeddings(len(tokenizer))
-    model.gradient_checkpointing_enable()
+    if not preset.get("no_ckpt"):
+        model.gradient_checkpointing_enable()
+    else:
+        print("[ckpt] disabled — trading VRAM for speed")
 
     # tf32 boost on Blackwell (~15% faster matmuls)
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -306,7 +310,7 @@ def main():
         greater_is_better=False,
         fp16=preset.get("fp16", False),
         bf16=preset.get("bf16", False),
-        gradient_checkpointing=True,
+        gradient_checkpointing=not preset.get("no_ckpt", False),
         report_to="none",
         dataloader_num_workers=4,
         tf32=True,
