@@ -21,27 +21,22 @@ cache/
 .hf_cache/
 
 # Large generated / transient artifacts
-exp/inference/devset/*.json.tmp
 data/*.jsonl
 data/*.pt
 out/
 
 # SID experiments (large .npy/.pt files, regenerated on server)
-exp/sid/multimodal_2176d/
-exp/sid/rqvae_*/
+exp/sid/
+exp/inference/ 
+exp/scores/
 
 # Claude working directory
 .claude/
 
-# Don't ship the upstream nlp4musa clones — see README for clone instructions
-music-crs-baselines/
-music-crs-evaluator/
-
-# But we do keep our own outputs in exp/ (small JSONs, useful for comparison)
-!exp/inference/
-!exp/scores/
-!exp/ground_truth/
-
 *.gz
-
+*.tar.gz
 Qwen3-0.6B/
+*.pdf
+
+src/ 
+!src/sid/
