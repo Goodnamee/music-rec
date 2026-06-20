@@ -38,6 +38,8 @@ exp/scores/
 Qwen3-0.6B/
 *.pdf
 
-src/ 
-!src/sid/train.log
+src/
+!src/sid/
+
+train.log
 error.log
