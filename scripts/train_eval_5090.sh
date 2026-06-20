@@ -40,8 +40,8 @@ echo "=== Phase 2: Inference ==="
 python src/sid/sid_inference.py \
   --model_dir "$OUT_DIR" \
   --model_path "$MODEL_PATH" \
-  --sid_to_tracks exp/sid/rqvae_2176d_d3_k256_l128/sid_to_tracks.json \
-  --track_to_sid exp/sid/rqvae_2176d_d3_k256_l128/track_to_sid.json \
+  --sid_to_tracks exp/sid/rqvae_2176d_d4_k256_3tok/sid_to_tracks.json \
+  --track_to_sid exp/sid/rqvae_2176d_d4_k256_3tok/track_to_sid.json \
   --out "$EXP_DIR/sid_generator.json"
 
 echo "=== Phase 3: Evaluation ==="
