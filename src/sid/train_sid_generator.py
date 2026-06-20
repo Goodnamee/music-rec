@@ -89,7 +89,7 @@ SID:"""
 
 PRESETS = {
     "5090": {
-        "batch_size": 24, "grad_accum": 5,
+        "batch_size": 20, "grad_accum": 6,
         "eval_batch_size": 8, "use_4bit": False,
         "attn": "sdpa", "fp16": False, "bf16": True,
         "skip_eval": False,
@@ -254,11 +254,10 @@ def main():
     else:
         print("[ckpt] disabled — trading VRAM for speed")
 
-    # tf32 + flash SDP for Blackwell
+    # tf32 boost for Blackwell
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
     torch.set_float32_matmul_precision("high")
-    torch.backends.cuda.enable_flash_sdp(True)
 
     lora_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
@@ -303,6 +302,7 @@ def main():
         max_steps=args.max_steps if args.max_steps > 0 else -1,
         learning_rate=args.lr,
         warmup_steps=100,
+        lr_scheduler_type="cosine",
         logging_steps=args.logging_steps,
         eval_strategy="no" if preset.get("skip_eval") else "steps",
         eval_steps=args.eval_steps,
