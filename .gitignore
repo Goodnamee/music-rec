@@ -39,4 +39,5 @@ Qwen3-0.6B/
 *.pdf
 
 src/ 
-!src/sid/
+!src/sid/train.log
+error.log
