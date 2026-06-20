@@ -61,6 +61,12 @@ def load_model(model_dir: str, base_model: str = "Qwen/Qwen3-0.6B", device: str 
     # Resize to match trained tokenizer (which includes SID tokens)
     model.resize_token_embeddings(len(tokenizer))
     model = PeftModel.from_pretrained(model, model_dir)
+    # Load trained embedding weights (saved by train_sid_generator.py)
+    embed_path = Path(model_dir) / "embed_weight.pt"
+    if embed_path.exists():
+        embed_weight = torch.load(embed_path, map_location="cpu")
+        model.get_input_embeddings().weight.data.copy_(embed_weight.to(model.device))
+        print(f"[model] loaded trained embedding from {embed_path}")
     model.eval()
 
     return model, tokenizer, sid_tokens
