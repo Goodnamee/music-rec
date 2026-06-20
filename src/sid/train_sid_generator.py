@@ -306,7 +306,7 @@ def main():
         save_steps=args.save_steps,
         save_total_limit=3,
         load_best_model_at_end=not preset.get("skip_eval", False),
-        metric_for_best_model="eval_loss" if not preset.get("skip_eval") else None,
+        metric_for_best_model="eval_loss" if not preset.get("skip_eval") else "loss",
         greater_is_better=False,
         fp16=preset.get("fp16", False),
         bf16=preset.get("bf16", False),
@@ -318,6 +318,7 @@ def main():
     )
 
     trainer_cls = LigerTrainer if _LIGER_AVAILABLE else Trainer
+    callbacks = [] if preset.get("skip_eval") else [EarlyStoppingCallback(early_stopping_patience=3)]
     trainer = trainer_cls(
         model=model,
         args=training_args,
@@ -325,7 +326,7 @@ def main():
         eval_dataset=eval_dataset,
         data_collator=data_collator,
         processing_class=tokenizer,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
+        callbacks=callbacks,
     )
     model.config.use_cache = False
 
