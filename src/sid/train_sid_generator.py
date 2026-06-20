@@ -334,13 +334,15 @@ def main():
     )
     model.config.use_cache = False
 
-    trainer.train()
-
-    # Save
-    model.save_pretrained(args.output_dir)
-    tokenizer.save_pretrained(args.output_dir)
-    with open(Path(args.output_dir) / "sid_config.json", "w") as f:
-        json.dump({"depth": SID_DEPTH, "codebook_size": SID_CODEBOOK_SIZE, "sid_tokens": SID_TOKENS}, f)
+    try:
+        trainer.train()
+    finally:
+        # Always save weights even if eval crashes
+        print("[save] saving model to", args.output_dir)
+        model.save_pretrained(args.output_dir)
+        tokenizer.save_pretrained(args.output_dir)
+        with open(Path(args.output_dir) / "sid_config.json", "w") as f:
+            json.dump({"depth": SID_DEPTH, "codebook_size": SID_CODEBOOK_SIZE, "sid_tokens": SID_TOKENS}, f)
 
     if not preset.get("skip_eval") and args.max_steps < 0:
         result = trainer.evaluate()
