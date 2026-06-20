@@ -55,21 +55,25 @@ class LigerTrainer(Trainer):
         if labels is None or not _LIGER_AVAILABLE:
             return super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
 
-        # Forward through transformer body (skips lm_head → no logits materialized)
-        base_model = model.get_base_model()  # unwrap PEFT → Qwen3ForCausalLM
-        outputs = base_model.model(  # Qwen3Model (transformer without lm_head)
+        # Eval needs logits → fall back to standard model forward
+        if return_outputs or not model.training:
+            return super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
+
+        # Training: bypass lm_head, fused CE on hidden states (saves VRAM)
+        base_model = model.get_base_model()
+        outputs = base_model.model(
             input_ids=inputs["input_ids"],
             attention_mask=inputs.get("attention_mask"),
         )
-        hidden_states = outputs.last_hidden_state  # [B, T, H]
+        hidden_states = outputs.last_hidden_state
 
         loss = _fused_ce(
-            hidden_states.view(-1, hidden_states.shape[-1]),  # [B*T, H]
-            base_model.lm_head.weight,                        # [V, H]
-            labels.view(-1),                                  # [B*T]
+            hidden_states.view(-1, hidden_states.shape[-1]),
+            base_model.lm_head.weight,
+            labels.view(-1),
             ignore_index=-100,
         )
-        return (loss, None) if return_outputs else loss
+        return loss
 
 SID_CODEBOOK_SIZE = 256
 SID_TOKENS = [f"<SID_{i}>" for i in range(SID_CODEBOOK_SIZE)]
@@ -203,7 +207,7 @@ def main():
     p.add_argument("--lora_r", type=int, default=16)
     p.add_argument("--lora_alpha", type=int, default=32)
     p.add_argument("--lora_dropout", type=float, default=0.05)
-    p.add_argument("--save_steps", type=int, default=2000)
+    p.add_argument("--save_steps", type=int, default=500)
     p.add_argument("--eval_steps", type=int, default=2000)
     p.add_argument("--logging_steps", type=int, default=100)
     p.add_argument("--max_steps", type=int, default=-1)
