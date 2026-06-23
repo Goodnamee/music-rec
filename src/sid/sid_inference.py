@@ -144,7 +144,7 @@ tokenizer_internal = None
 
 
 def batch_generate(model, tokenizer, sid_tokens: list[str], prompts: list[str],
-                   prefix_tree: dict, max_new_tokens: int = 32,
+                   prefix_tree: dict, max_new_tokens: int = 8,
                    num_beams: int = 20, num_return: int = 20):
     """Generate SID sequences with hash-based constrained beam search."""
     global tokenizer_internal
@@ -290,12 +290,25 @@ def main():
     for session in tqdm(sessions, desc="building inputs"):
         all_samples.extend(build_session_inputs(session, tokenizer, track_to_sid, sid_to_tracks))
 
-    # Inference (batched)
-    INFER_BATCH = 4
+    # Inference (batched) with incremental save — resume safe after sleep/crash
+    INFER_BATCH = 1
+    SAVE_EVERY = 50  # save every N items
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Resume from existing partial results
     results = []
+    start_idx = 0
+    if out_path.exists():
+        with open(out_path, "r", encoding="utf-8") as f:
+            results = json.load(f)
+        start_idx = len(results)
+        print(f"[resume] {start_idx} predictions already saved, skipping")
+
     prompts = [PROMPT.format(input=s["input"]) for s in all_samples]
 
-    for i in tqdm(range(0, len(prompts), INFER_BATCH), desc="generating"):
+    for i in tqdm(range(start_idx, len(prompts), INFER_BATCH), desc="generating",
+                  initial=start_idx, total=len(prompts)):
         batch_prompts = prompts[i : i + INFER_BATCH]
         batch_samples = all_samples[i : i + INFER_BATCH]
         batch_sids = batch_generate(model, tokenizer, sid_tokens, batch_prompts, prefix_tree)
@@ -324,11 +337,11 @@ def main():
                 "predicted_response": "",
             })
 
-    # Save
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=1)
+        # Incremental save
+        if (i + 1) % SAVE_EVERY == 0 or i + INFER_BATCH >= len(prompts):
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(results, f, indent=1)
+
     print(f"[out] {len(results)} predictions → {out_path}")
 
 

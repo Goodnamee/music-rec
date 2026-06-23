@@ -277,3 +277,89 @@ nohup bash scripts/train_eval_5090.sh > train.log 2>&1 &
   5XLcIV00JGyB
 
   解压：tar -xzf sid_data.tar.gz
+
+## 推理评估记录 (2026-06-21)
+
+训练设置：d4_3tok SIDs, depth=3, codebook=256, Qwen3-0.6B LoRA, ~161K 训练样本
+推理：beam=20, constrained decoding, batch=1, max_new_tokens=8
+
+| Checkpoint | Train Loss | Eval Loss | nDCG@1 | nDCG@10 | nDCG@20 | Hit@20 | Catalog Div |
+|-----------|-----------|-----------|--------|---------|---------|--------|-------------|
+| 500 | ~0.002 | 22.06 | 0.00013 | 0.00021 | 0.00027 | 0.06% | 0.042 |
+| 2000 | ~0.0009 | 23.00 | 0 | 0.00019 | 0.00022 | 0.06% | 0.046 |
+
+**结论：两个 checkpoint 都是随机水平。train loss 降到几乎 0，eval loss 始终 22+，严重过拟合。模型没学到从对话到 SID 的映射。**
+
+## 诊断过程 (2026-06-22)
+
+### 诊断脚本验证
+
+用训练样本直接测试模型预测 vs 标签：
+
+```
+Label:   <a_4> <b_139> <c_62>
+Predict: ighing sigh sigh sigh sigh sigh sigh
+```
+
+无约束解码时模型输出普通文本，完全没学会 SID。
+
+### 关键发现：SID token embedding norm 过小
+
+| Token 类型 | LM Head norm | Embedding norm |
+|-----------|-------------|----------------|
+| SID token (`<a_4>`) | 0.3750 | 0.3750 |
+| SID token (`<b_139>`) | 0.3535 | 0.3535 |
+| 普通文本 (`igh`) | 1.0859 | 1.0859 |
+| 普通文本 (`the`) | 1.1562 | 1.1562 |
+
+SID token 的向量长度比普通词小约 **3 倍**。
+
+### 根因分析
+
+`resize_token_embeddings` 默认 `mean_resizing=True`，新 token embedding 从旧分布（μ≈0, σ≈0.02）采样初始化，norm ≈ 0.02。训练 2500 步只涨到 0.35，远不到普通 token 的 1.0。
+
+```
+logit = hidden · lm_head_weight
+SID logit = |hidden| × 0.35  vs  普通 logit = |hidden| × 1.0
+```
+
+方向完美对齐时 SID 分数也自动低 3 倍。softmax 后 SID token 排名跌到 88253 / 153717。
+
+**约束解码（Constrained Decoding）确保输出格式合法，但不能让模型选对——选对靠训练时 SID embedding 学到语义，而 SID embedding 因 norm 太小根本没学到。**
+
+### 对比 baseline
+
+| 方法 | nDCG@1 |
+|------|--------|
+| BM25 | 0.014 |
+| Random | 0.000125 |
+| Popularity | 0.000125 |
+| **SID Generator** | 0.000125 |
+
+模型 = 随机水平。
+
+## 解决方案
+
+### ✅ 已修复：SID Embedding Norm 对齐
+
+在 `train_sid_generator.py` 第 255 行之后添加：
+
+```python
+# scale new SID token embeddings to match existing token norms
+with torch.no_grad():
+    embed_w = model.get_input_embeddings().weight
+    old_norm_mean = embed_w[:original_vocab_size].norm(dim=1).mean().item()
+    for i in range(original_vocab_size, len(tokenizer)):
+        cur_norm = embed_w[i].norm().item()
+        if cur_norm > 0:
+            embed_w[i] *= (old_norm_mean / cur_norm)
+```
+
+效果：SID token embedding 初始 norm ≈ 1.0，和普通词同一量级。
+
+### ⬜ 待做：服务器重新训练
+
+```bash
+# 服务器 pull 代码后
+nohup bash scripts/train_eval_5090.sh > train.log 2>&1 &
+```

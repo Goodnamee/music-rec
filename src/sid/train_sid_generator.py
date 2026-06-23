@@ -253,6 +253,18 @@ def main():
 
     model = AutoModelForCausalLM.from_pretrained(args.model_path, **model_kwargs)
     model.resize_token_embeddings(len(tokenizer))
+    # ── Fix: scale new SID token embeddings to match existing token norms ──
+    # Default mean_resizing=True initializes new rows with tiny norm (~0.02),
+    # which barely grows to ~0.35 during training vs ~1.0 for existing tokens.
+    # This makes SID logits 3x lower → model never predicts them.
+    with torch.no_grad():
+        embed_w = model.get_input_embeddings().weight
+        old_norm_mean = embed_w[:original_vocab_size].norm(dim=1).mean().item()
+        for i in range(original_vocab_size, len(tokenizer)):
+            cur_norm = embed_w[i].norm().item()
+            if cur_norm > 0:
+                embed_w[i] *= (old_norm_mean / cur_norm)
+        print(f"[init] scaled {len(tokenizer) - original_vocab_size} SID tokens to match old norm mean {old_norm_mean:.4f}")
     if not preset.get("no_ckpt"):
         model.gradient_checkpointing_enable()
     else:
