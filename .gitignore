@@ -40,6 +40,7 @@ Qwen3-0.6B/
 
 src/
 !src/sid/
+!src/sid/**
 
 train.log
 error.log

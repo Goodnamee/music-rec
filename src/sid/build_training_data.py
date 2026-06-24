@@ -88,15 +88,14 @@ def build_main_samples(split: str, track_to_sid: dict, user_profiles: dict):
             if turn not in turn_user_texts or turn not in turn_music_track:
                 break
 
-            user_text = " ".join(turn_user_texts[turn])
-            all_user_texts.append(user_text)
-
             track_id = turn_music_track[turn]
             sid_entry = track_to_sid.get(track_id)
             if sid_entry is None:
                 skipped += 1
-                # Still add turn so prev_rec context stays aligned
-                continue
+                continue  # Skip turn entirely: no sample generated, no context for later turns
+
+            user_text = " ".join(turn_user_texts[turn])
+            all_user_texts.append(user_text)
 
             # Build input: user_pref + previous_recs + dialogue history
             parts = []
