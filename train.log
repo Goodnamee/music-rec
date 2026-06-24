@@ -1,77 +1,164 @@
 nohup: ignoring input
 === Phase 1: Training ===
 [transformers] `torch_dtype` is deprecated! Use `dtype` instead!
-[preset] 5090: batch=32×1, 4bit=False, attn=sdpa
+[liger] fused CE kernel available
+[preset] 5090: batch=16×8, 4bit=False, attn=sdpa
 
 Loading weights:   0%|          | 0/311 [00:00<?, ?it/s]
-Loading weights:   0%|          | 1/311 [00:00<01:37,  3.17it/s]
-Loading weights:  57%|█████▋    | 178/311 [00:00<00:00, 520.76it/s]
-Loading weights:  85%|████████▌ | 265/311 [00:00<00:00, 586.59it/s]
-Loading weights: 100%|██████████| 311/311 [00:00<00:00, 421.62it/s]
+Loading weights:   1%|          | 2/311 [00:00<00:17, 17.80it/s]
+Loading weights:  44%|████▎     | 136/311 [00:00<00:00, 754.34it/s]
+Loading weights:  86%|████████▌ | 268/311 [00:00<00:00, 1000.37it/s]
+Loading weights: 100%|██████████| 311/311 [00:00<00:00, 906.25it/s] 
+[transformers] The new embeddings will be initialized from a multivariate normal distribution that has old embeddings' mean and covariance. As described in this article: https://nlp.stanford.edu/~johnhew/vocab-expansion.html. To disable this, use `mean_resizing=False`
 [transformers] The tokenizer has new PAD/BOS/EOS tokens that differ from the model config and generation config. The model config and generation config were aligned accordingly, being updated with the tokenizer's values. Updated tokens: {'bos_token_id': None, 'pad_token_id': 151643}.
-trainable params: 2,293,760 || all params: 598,332,416 || trainable%: 0.3834
-[data] train=161592, eval=500, steps≈25245
+[ckpt] disabled — trading VRAM for speed
+[sid-embed] 2048/153717 rows trainable via separate sid_embed param (2,097,152 params)
+trainable params: 169,595,904 || all params: 610,063,360 || trainable%: 27.7997
+[data] train=161592, eval=500, steps≈3786
+[sid] auto-detected depth=3 (non_masked=6)
+[opt] excluding full embedding, optimizer tracks 12,189,696 params (vs 169,595,904 total trainable)
 
-  0%|          | 0/25250 [00:00<?, ?it/s]
- 36%|███▋      | 9200/25250 [2:19:47<3:57:44,  1.13it/s]
-                                                        
-{'loss': '5.05', 'grad_norm': '1.202', 'learning_rate': '0.000198', 'epoch': '0.0198'}
-{'loss': '2.864', 'grad_norm': '0.2963', 'learning_rate': '0.0001992', 'epoch': '0.0396'}
+  0%|          | 0/3789 [00:00<?, ?it/s]
+  0%|          | 1/3789 [00:06<7:05:24,  6.74s/it]
 
-{'loss': '2.861', 'grad_norm': '0.2232', 'learning_rate': '0.0001292', 'epoch': '1.782'}
-{'loss': '2.855', 'grad_norm': '0.06464', 'learning_rate': '0.0001284', 'epoch': '1.802'}
+ 13%|█▎        | 500/3789 [42:59<4:40:00,  5.11s/it]
+                                                    
 
- 36%|███▋      | 9200/25250 [2:19:47<3:57:44,  1.13it/s]
+ 13%|█▎        | 500/3789 [42:59<4:40:00,  5.11s/it]{'loss': '50.64', 'grad_norm': '37.17', 'learning_rate': '0.000198', 'epoch': '0.07921'}
+{'loss': '6.575', 'grad_norm': '0.2014', 'learning_rate': '0.0001996', 'epoch': '0.1584'}
+{'loss': '0.006977', 'grad_norm': '0.03198', 'learning_rate': '0.0001986', 'epoch': '0.2376'}
+{'loss': '0.002575', 'grad_norm': '0.01896', 'learning_rate': '0.0001968', 'epoch': '0.3168'}
+{'loss': '0.00206', 'grad_norm': '0.01569', 'learning_rate': '0.0001943', 'epoch': '0.396'}
 
- 73%|███████▎  | 18400/25250 [4:39:40<1:41:17,  1.13it/s]
-                                                         
-{'loss': '2.848', 'grad_norm': '0.1228', 'learning_rate': '0.0001276', 'epoch': '1.822'}
 
-{'loss': '2.856', 'grad_norm': '0.1599', 'learning_rate': '5.528e-05', 'epoch': '3.624'}
+  0%|          | 0/63 [00:00<?, ?it/s][A
 
- 73%|███████▎  | 18400/25250 [4:39:40<1:41:17,  1.13it/s]
- 
-100%|██████████| 25250/25250 [6:23:41<00:00,  1.23it/s]/root/miniconda3/lib/python3.12/site-packages/peft/utils/save_and_load.py:386: UserWarning: Setting `save_embedding_layers` to `True` as the embedding layer has been resized during finetuning.
+ 98%|█████████▊| 62/63 [00:04<00:00, 13.51it/s][A
+                                                                      
+[A
+ 13%|█▎        | 500/3789 [43:04<4:40:00,  5.11s/it]
+
+100%|██████████| 63/63 [00:04<00:00, 13.51it/s][A
+
+                                               [A/root/miniconda3/lib/python3.12/site-packages/peft/utils/save_and_load.py:386: UserWarning: Setting `save_embedding_layers` to `True` as the embedding layer has been resized during finetuning.
   warnings.warn(
 
+ 13%|█▎        | 501/3789 [43:10<6:21:29,  6.96s/it]
+ 26%|██▋       | 1000/3789 [1:26:04<3:59:59,  5.16s/it]
+                                                       
+
+ 26%|██▋       | 1000/3789 [1:26:04<3:59:59,  5.16s/it]{'eval_loss': '22.06', 'eval_runtime': '5.177', 'eval_samples_per_second': '96.58', 'eval_steps_per_second': '12.17', 'epoch': '0.396'}
+{'loss': '0.001763', 'grad_norm': '0.01679', 'learning_rate': '0.0001911', 'epoch': '0.4752'}
+{'loss': '0.001565', 'grad_norm': '0.01217', 'learning_rate': '0.0001873', 'epoch': '0.5545'}
+{'loss': '0.001424', 'grad_norm': '0.01149', 'learning_rate': '0.0001828', 'epoch': '0.6337'}
+{'loss': '0.001314', 'grad_norm': '0.01169', 'learning_rate': '0.0001777', 'epoch': '0.7129'}
+{'loss': '0.001238', 'grad_norm': '0.01145', 'learning_rate': '0.0001721', 'epoch': '0.7921'}
+
+
+  0%|          | 0/63 [00:00<?, ?it/s][A
+
+ 
+ 98%|█████████▊| 62/63 [00:04<00:00, 13.55it/s][A
+                                                       
+
+                                               
+[A
+ 26%|██▋       | 1000/3789 [1:26:09<3:59:59,  5.16s/it]
+
+100%|██████████| 63/63 [00:04<00:00, 13.55it/s][A
+
+                                               [A/root/miniconda3/lib/python3.12/site-packages/peft/utils/save_and_load.py:386: UserWarning: Setting `save_embedding_layers` to `True` as the embedding layer has been resized during finetuning.
+  warnings.warn(
+
+ 26%|██▋       | 1001/3789 [1:26:15<5:26:15,  7.02s/it]
+ 
+ 40%|███▉      | 1500/3789 [2:09:06<3:15:24,  5.12s/it]
+                                                       
+
+ 40%|███▉      | 1500/3789 [2:09:06<3:15:24,  5.12s/it]{'loss': '0.001069', 'grad_norm': '0.008854', 'learning_rate': '0.0001522', 'epoch': '1.029'}
+{'loss': '0.001039', 'grad_norm': '0.008499', 'learning_rate': '0.0001448', 'epoch': '1.109'}
+{'loss': '0.001011', 'grad_norm': '0.008677', 'learning_rate': '0.000137', 'epoch': '1.188'}
+
+
+  0%|          | 0/63 [00:00<?, ?it/s][A
+
+ 98%|█████████▊| 62/63 [00:04<00:00, 13.53it/s][A
+                                                       
+
+                                               
+[A
+ 40%|███▉      | 1500/3789 [2:09:11<3:15:24,  5.12s/it]
+
+100%|██████████| 63/63 [00:04<00:00, 13.53it/s][A
+
+                                               [A/root/miniconda3/lib/python3.12/site-packages/peft/utils/save_and_load.py:386: UserWarning: Setting `save_embedding_layers` to `True` as the embedding layer has been resized during finetuning.
+  warnings.warn(
+
+ 40%|███▉      | 1501/3789 [2:09:17<4:26:05,  6.98s/it]
+ 
+ 53%|█████▎    | 2000/3789 [2:52:10<2:32:10,  5.10s/it]
+                                                       
+
+ 53%|█████▎    | 2000/3789 [2:52:10<2:32:10,  5.10s/it]{'eval_loss': '22.81', 'eval_runtime': '5.199', 'eval_samples_per_second': '96.18', 'eval_steps_per_second': '12.12', 'epoch': '1.188'}
+{'loss': '0.0009793', 'grad_norm': '0.008182', 'learning_rate': '0.000129', 'epoch': '1.267'}
+{'loss': '0.0009553', 'grad_norm': '0.008299', 'learning_rate': '0.0001208', 'epoch': '1.346'}
+{'loss': '0.0009342', 'grad_norm': '0.007746', 'learning_rate': '0.0001124', 'epoch': '1.425'}
+{'loss': '0.0009126', 'grad_norm': '0.007534', 'learning_rate': '0.0001039', 'epoch': '1.505'}
+{'loss': '0.0008961', 'grad_norm': '0.007403', 'learning_rate': '9.536e-05', 'epoch': '1.584'}
+
+
+  0%|          | 0/63 [00:00<?, ?it/s][A
+ 98%|█████████▊| 62/63 [00:04<00:00, 13.53it/s][A
+                                                       
+
+                                               
+[A
+ 53%|█████▎    | 2000/3789 [2:52:15<2:32:10,  5.10s/it]
+
+100%|██████████| 63/63 [00:04<00:00, 13.53it/s][A
+
+                                               [A/root/miniconda3/lib/python3.12/site-packages/peft/utils/save_and_load.py:386: UserWarning: Setting `save_embedding_layers` to `True` as the embedding layer has been resized during finetuning.
+  warnings.warn(
+
+ 53%|█████▎    | 2001/3789 [2:52:21<3:27:24,  6.96s/it]
+
+ 66%|██████▌   | 2500/3789 [3:35:15<1:50:39,  5.15s/it]
+                                                       
+
+ 66%|██████▌   | 2500/3789 [3:35:15<1:50:39,  5.15s/it]{'eval_loss': '23', 'eval_runtime': '5.286', 'eval_samples_per_second': '94.58', 'eval_steps_per_second': '11.92', 'epoch': '1.584'}
+{'loss': '0.0008754', 'grad_norm': '0.0072', 'learning_rate': '8.688e-05', 'epoch': '1.663'}
+{'loss': '0.0008639', 'grad_norm': '0.007414', 'learning_rate': '7.85e-05', 'epoch': '1.742'}
+{'loss': '0.0008475', 'grad_norm': '0.007132', 'learning_rate': '7.027e-05', 'epoch': '1.821'}
+{'loss': '0.0008355', 'grad_norm': '0.006856', 'learning_rate': '6.225e-05', 'epoch': '1.901'}
+{'loss': '0.0008247', 'grad_norm': '0.006792', 'learning_rate': '5.451e-05', 'epoch': '1.98'}
+
+
+  0%|          | 0/63 [00:00<?, ?it/s][A
+ 98%|█████████▊| 62/63 [00:04<00:00, 13.52it/s][A
+                                                       
+
+                                               
+[A
+ 66%|██████▌   | 2500/3789 [3:35:20<1:50:39,  5.15s/it]
+
+100%|██████████| 63/63 [00:04<00:00, 13.52it/s][A
+
+                                               [A/root/miniconda3/lib/python3.12/site-packages/peft/utils/save_and_load.py:386: UserWarning: Setting `save_embedding_layers` to `True` as the embedding layer has been resized during finetuning.
+  warnings.warn(
+
+                                                       
+
+ 66%|██████▌   | 2500/3789 [3:35:22<1:50:39,  5.15s/it]
+ 66%|██████▌   | 2500/3789 [3:35:22<1:51:02,  5.17s/it]
 /root/miniconda3/lib/python3.12/site-packages/peft/utils/save_and_load.py:386: UserWarning: Setting `save_embedding_layers` to `True` as the embedding layer has been resized during finetuning.
   warnings.warn(
-{'loss': '2.849', 'grad_norm': '0.4237', 'learning_rate': '5.448e-05', 'epoch': '3.644'}
-{'loss': '2.861', 'grad_norm': '0.3928', 'learning_rate': '5.369e-05', 'epoch': '3.663'}
+{'eval_loss': '23.08', 'eval_runtime': '5.163', 'eval_samples_per_second': '96.85', 'eval_steps_per_second': '12.2', 'epoch': '1.98'}
+{'train_runtime': '1.292e+04', 'train_samples_per_second': '37.52', 'train_steps_per_second': '0.293', 'train_loss': '2.29', 'epoch': '1.98'}
+[save] saving model to out/sid_generator
+[save] embed_weight ((153717, 1024)) → embed_weight.pt
 
-{'loss': '2.852', 'grad_norm': '0.2738', 'learning_rate': '1.201e-06', 'epoch': '4.97'}
-{'loss': '2.85', 'grad_norm': '0.2092', 'learning_rate': '4.056e-07', 'epoch': '4.99'}
-{'train_runtime': '2.302e+04', 'train_samples_per_second': '35.09', 'train_steps_per_second': '1.097', 'train_loss': '2.862', 'epoch': '5'}
+  0%|          | 0/63 [00:00<?, ?it/s]
 
-  0%|          | 0/500 [00:00<?, ?it/s]
-  1%|          | 5/500 [00:00<00:10, 48.59it/s]
-  2%|▏         | 10/500 [00:00<00:12, 40.43it/s]
-  3%|▎         | 15/500 [00:00<00:13, 35.55it/s]
-  4%|▍         | 19/500 [00:00<00:14, 33.87it/s]
-  5%|▍         | 23/500 [00:00<00:15, 31.17it/s]
-  5%|▌         | 27/500 [00:00<00:16, 29.42it/s]
-  6%|▌         | 30/500 [00:00<00:16, 27.77it/s]
-  7%|▋         | 33/500 [00:01<00:19, 24.36it/s]Traceback (most recent call last):
-  File "/root/music-rec/src/sid/train_sid_generator.py", line 277, in <module>
-    main()
-  File "/root/music-rec/src/sid/train_sid_generator.py", line 272, in main
-    result = trainer.evaluate()
-             ^^^^^^^^^^^^^^^^^^
-  File "/root/miniconda3/lib/python3.12/site-packages/transformers/trainer.py", line 2603, in evaluate
-    output = self.evaluation_loop(
-             ^^^^^^^^^^^^^^^^^^^^^
-  File "/root/miniconda3/lib/python3.12/site-packages/transformers/trainer.py", line 2755, in evaluation_loop
-    all_preds.add(logits)
-  File "/root/miniconda3/lib/python3.12/site-packages/transformers/trainer_pt_utils.py", line 378, in add
-    self.tensors = nested_concat(self.tensors, tensors, padding_index=self.padding_index)
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/root/miniconda3/lib/python3.12/site-packages/transformers/trainer_pt_utils.py", line 130, in nested_concat
-    return torch_pad_and_concatenate(tensors, new_tensors, padding_index=padding_index)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/root/miniconda3/lib/python3.12/site-packages/transformers/trainer_pt_utils.py", line 94, in torch_pad_and_concatenate
-    result = tensor1.new_full(new_shape, padding_index)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 10.43 GiB. GPU 0 has a total capacity of 31.36 GiB of which 9.21 GiB is free. Including non-PyTorch memory, this process has 22.14 GiB memory in use. Of the allocated memory 11.45 GiB is allocated by PyTorch, and 10.11 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
-
-  7%|▋         | 35/500 [00:02<00:36, 12.85it/s]
-=== ERROR at line 26 (exit 1) ===
+100%|██████████| 63/63 [00:04<00:00, 12.90it/s]
+[final] eval_sid_accuracy = N/A
+=== Done ===
