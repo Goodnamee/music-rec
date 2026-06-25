@@ -370,62 +370,241 @@ with torch.no_grad():
 
 eval_loss 翻倍（22→37.76）—— norm=1.0 让模型自信地猜错，而不是不确定地猜。
 
-## 分析框架：为何 LoRA+Constrained Decoding 无法学到 SID 映射
+## 实验记录：排查 SID Generator 无法学到 SID 映射的根因 (2026-06-22 ~ 06-25)
+
+### 问题症状
+训练收敛（train_loss ~0.0007），但推理+约束解码后 nDCG@1 = 0.000125，等于随机 baseline。
+
+### 诊断实验设计框架
 
 五个可测试的假设，从浅到深：
 
-### 假设 1：模型能不能记住少量样本？
+| # | 假设 | 测试方法 |
+|---|------|---------|
+| 1 | 架构/梯度有 bug，模型根本记不住 SID | 100 条过拟合 → 看 train loss 能否到 0 + 预测正确率 |
+| 2 | 训练 softmax 分母 153717 vs 推理 256，分布不匹配 | 训练时约束 softmax 到 SID token 集合 |
+| 3 | LoRA r=16 容量不够 | r=64/128 对比 |
+| 4 | lm_head SID 行被排除了，间接更新不够 | optimizer 加入 lm_head SID 行 |
+| 5 | SID 码本身不承载语义 | 检查相同 SID 前缀的 track 是否共享 artist/genre |
 
-取 100 条训练数据，过拟合到 train_loss=0。若能记住，说明架构/梯度/损失没问题，问题是泛化；若记不住，说明架构有 bug。
+---
 
-### 假设 2：训练时 softmax 分母稀释 SID 梯度
+### 实验 1：过拟合测试（假设 1）—— 2026-06-25
 
-训练时 softmax 分母 153717 tokens，推理时约束后 256 tokens，分布完全不同。
-测试：训练时只对合法 SID token 算 loss（约束 softmax）。
+**目的**：验证 LoRA + sid_embed + gradient hook 架构是否能正常工作。如果连 100 条都记不住，说明代码有 bug。
 
-### 假设 3：LoRA r=16 容量不够
+**方法**：
+1. 从 `data/sid_train_512.pt` 取前 100 条，保存为 `data/sid_overfit_100.pt`
+2. 用 `--preset test --epochs 50 --lr 1e-3` 训练（提高 lr、多 epoch 强制过拟合）
+3. 训完用约束解码（beam=1）对训练集 100 条做推理
+4. 比对 pred SID 是否等于 label SID
 
-SID 映射需要从对话提取音乐语义，LoRA rank=16 瓶颈可能不够。
-测试：r=64 或 r=128 训练，对比 eval_loss。
+**命令**：
+```bash
+# 数据准备 (diagnose_tests.py)
+torch.save(subset, "data/sid_overfit_100.pt")
 
-### 假设 4：lm_head SID 行被排除优化
+# 训练
+python src/sid/train_sid_generator.py \
+  --train_pt data/sid_overfit_100.pt \
+  --eval_pt data/sid_overfit_100.pt \
+  --model_path ./Qwen3-0.6B \
+  --output_dir out/sid_overfit \
+  --preset test --epochs 50 --lr 1e-3
 
-当前 optimizer 排除了 lm_head，SID 行只通过 sid_embed → tied embedding 间接更新。
-测试：允许 optimizer 直接更新 lm_head SID 行。
-
-### 假设 5：对话语义和 SID 之间没有可学习的映射
-
-RQ-VAE 对 track 聚类，但对话意图（"来点摇滚"）和 SID 码（`<a_7> <b_48> <c_80>`）之间可能没有稳定对应关系。
-测试：用 track metadata 描述直接预测 SID（aux task），看准确率。
-
-### 执行计划
-
-先测 1（过拟合）和 5（aux task 语义检查），按需测 2/3/4。
-
-### 测试 5 结果 (2026-06-25)
-
-SID codes DO carry semantics — 但不是按艺术家分组的：
-- Same `<a_X>` prefix → artist overlap = 0.0000 (SIDs don't group by artist)
-- Same `<a_X> <b_Y>` prefix → 0 matching pairs out of 10000 sampled
-- RQ-VAE clusters by multimodal embedding (attributes+lyrics+CF), not by artist/genre
-- Genres field in HF metadata is empty for ALL 47071 tracks
-
-结论：SID 码按"音乐氛围"聚类，每层 256 码覆盖 ~180 条氛围相似的 track。SID 结构本身是有效的。
-
-### 测试 1 结果 (2026-06-25)
-
-**Accuracy = 78/100 (78%)，train_loss = 0.049**
-
+# 验证（手动加载模型 + 逐条生成比对）
 ```
+
+**结果**：
+```
+train_loss: 2.066 → 0.049 (epoch 50)
+Accuracy: 78/100 = 78%
+
+Sample predictions:
 [0] pred="<a_4> <b_139> <c_62>" | label="<a_4> <b_139> <c_62>" | OK
 [1] pred="<a_125> <b_3> <c_100>" | label="<a_125> <b_3> <c_100>" | OK
 ```
 
-**架构没有 bug。** LoRA + sid_embed + 梯度路由都能正常工作。模型能记住 100 条训练数据。
+**结论**：✅ 架构没有 bug。LoRA + sid_embed + 梯度路由都能正常工作。100 条中能记住 78 条（22 条难样本可能容量不够或 SID 冲突）。
+**问题是泛化**，不是架构错误。→ 继续测假设 2。
 
-**问题是泛化**：161K 样本 vs 46K SID 组合，每个 SID 平均出现 ~3.5 次，模型背住了但推不出规律。
+---
 
-### 下一步：假设 2 — 训练时使用约束 softmax
+### 实验 2：约束 softmax 训练（假设 2）—— 2026-06-25
 
-当前训练时 softmax 分母 = 153717 tokens。推理时 constrained decoding 只允许 ~770 个。
-训练和推理的分布不匹配，是导致差泛化的最可疑原因。
+**目的**：训练时 softmax 分母 153717 tokens，推理时 constrained decoding 只允许 ~770 个合法 token。两者分布不匹配可能导致训练学到"压制非 SID token"而不是"区分 SID token"。让训练 loss 只计算合法 token。
+
+**方法**：
+1. 修改 `LigerTrainer.compute_loss`（`train_sid_generator.py` 第 46-114 行）
+2. 在训练时的 label 位置（labels != -100），隐藏状态只投影到 `valid_ids` 集合：
+   - 所有 SID token (a_0~a_255, b_0~b_255, c_0~c_255 = 768 个实际使用的)
+   - 空格 token（ID=220）
+   - EOS token
+   - 共 ~770 个合法 token
+3. 在 constrained 路径：h_selected @ lm_head[valid_ids].T → logits [N, 770] → CE loss
+4. Eval 和 Liger fuse CE 路径不受影响
+
+**代码变更**（`train_sid_generator.py`）：
+```python
+# LigerTrainer.__init__ 增加:
+self._sids_valid_ids = valid_ids   # set of legal token ids
+self._sids_valid_list = sorted(valid_ids)
+self._sids_idx_map = {tid: i for i, tid in enumerate(self._sids_valid_list)}
+
+# compute_loss constrained 路径:
+h_selected = hidden_states[label_mask]           # [N, D]
+valid_w = lm_head_w[self._sids_valid_list]       # [K, D]
+logits = h_selected @ valid_w.T                   # [N, K]
+# map original label id → constrained index
+loss = F.cross_entropy(logits, mapped_labels, ignore_index=-100)
+```
+
+**测试**：
+```bash
+# 同样 100 条过拟合，对比约束 vs 无约束
+python src/sid/train_sid_generator.py \
+  --train_pt data/sid_overfit_100.pt \
+  --eval_pt data/sid_overfit_100.pt \
+  --model_path ./Qwen3-0.6B \
+  --output_dir out/sid_overfit_cs \
+  --preset test --epochs 50 --lr 1e-3
+```
+
+**结果**：
+```
+              Train Loss    100条准确率
+无约束 softmax   0.049        78%
+约束 softmax     0.029        78%
+
+Loss 更低（-41%），但准确率天花板相同。
+约束版决策更精准（logit 分布更集中），22 条"难样本"两者都记不住。
+```
+
+**结论**：约束 softmax 降低 loss 但未突破准确率天花板。需要在全量数据上验证泛化效果。→ 服务器重训测试。
+
+---
+
+### 实验 3：SID 语义检查（假设 5）—— 2026-06-25
+
+**目的**：验证 RQ-VAE 产生的 SID 码是否真正按"音乐氛围"聚类。如果 SID 是随机的，模型永远学不到。
+
+**方法**：
+1. 加载 track metadata（HF `talkpl-ai/TalkPlayData-Challenge-Track-Metadata`）
+2. 对每个 SID 前缀（`<a_X>`），收集其下 track 的 artist
+3. 随机采样 10000 对 SID：同前缀 vs 不同前缀
+4. 比较 artist 重合度（Jaccard overlap）
+5. 如果同前缀 artist 重合 > 不同前缀 × 1.5，则 SID 有语义
+
+**命令**：
+```python
+# diagnose_tests.py Test 5 部分
+# 关键逻辑：
+for _ in range(10000):
+    s1, s2 = random.choice(sids)
+    p1, p2 = s1.split()[0], s2.split()[0]   # <a_X> prefix
+    # get artists for tracks under each SID
+    artists1 = {track_artist[tid] for tid in sid_to_tracks[s1][:3]}
+    artists2 = {track_artist[tid] for tid in sid_to_tracks[s2][:3]}
+    overlap = len(artists1 & artists2) / len(artists1 | artists2)
+    # group by same/diff prefix
+```
+
+**结果**：
+```
+Same prefix (<a_X>) artist overlap: 0.0000 (42 pairs)
+Diff prefix artist overlap:         0.0007 (9942 pairs)
+Depth-2 (<a_X> <b_Y>) same:         0.0000 (0 matching pairs)
+
+Metadata 问题: genres 字段所有 47071 条均为空
+```
+
+**结论**：SID 码**不按 artist 聚类**（0% 重合）。RQ-VAE 按 multimodal embedding
+（attributes-qwen3 + lyrics-qwen3 + cf-bpr，共 2176d）聚类，artist 不是明确维度。
+SID 空间 256³ = 16M，46K tracks 极其稀疏（每 SID ~0.003 条 track）。
+对话中用户表达的"音乐偏好"（如 "intense dramatic"）能否映射到 SID 空间，
+取决于 RQ-VAE 编码是否保留了这些维度——这无法从 metadata 直接验证。
+
+---
+
+### 实验 0：SID Embedding Norm 修复 —— 2026-06-22
+
+**目的**：修复 `resize_token_embeddings(mean_resizing=True)` 导致 SID token 向量长度
+比普通文本 token 小 ~3 倍的问题。
+
+**发现过程**：
+```python
+# diagnose.py 诊断脚本
+# 加载 checkpoint-500 → 测一条训练样本
+# 预测: "ighing sigh sigh sigh..."  ← 普通文本！
+# 正确: "<a_4> <b_139> <c_62>"
+
+# 检查 SID token logit 排名：
+correct token <a_4>: rank 88253/153717, prob=0.000000
+top-5: ['igh', 'aying', 'LOT', 'ear', 'arc']  ← 全是普通词
+
+# 检查 norm：
+SID token lm_head norm: 0.35
+普通词 lm_head norm:    1.09
+```
+
+**根因**：`mean_resizing=True` 对每维独立采样，丢失了旧词内部的维度间相关性。
+舊词靠少数大值维度撑起 norm，独立采样均匀撒到 1024 维，norm 从 ~1.0 跌到 ~0.3。
+
+**修复**（`train_sid_generator.py` 第 256-267 行）：
+```python
+with torch.no_grad():
+    embed_w = model.get_input_embeddings().weight
+    old_norm_mean = embed_w[:original_vocab_size].norm(dim=1).mean().item()
+    for i in range(original_vocab_size, len(tokenizer)):
+        cur_norm = embed_w[i].norm().item()
+        if cur_norm > 0:
+            embed_w[i] *= (old_norm_mean / cur_norm)
+```
+
+**全量训练验证**：
+```
+旧版 no-fix: SID norm 0.35, eval_loss 22.06, nDCG@1=0.00013
+新版 norm-fix: SID norm 0.94, eval_loss 37.76, nDCG@1=0
+```
+Norm 修复生效，但 eval_loss 翻倍（模型自信猜错），nDCG 未改善。
+→ 问题不在 norm，需要继续排查。
+
+---
+
+### 辅助发现与修复
+
+**A. 训练数据对齐 bug**（`build_training_data.py` 第 91-99 行）
+当 track 无 SID 映射时，`all_user_texts` 已添加但 `prev_rec_sids` 未添加，
+导致 `zip()` 将错误的历史 SID 与后续 turn 的用户文本配对。
+**修复**：跳过时不添加 user_text，保持上下文对齐。
+commit: `ad050c1` Fix training data alignment bug
+
+**B. 推理增量保存**（`sid_inference.py` 第 293-325 行）
+原始实现只在最后一次性写 JSON，电脑睡眠/崩溃丢全部进度。
+**修复**：每 50 条增量保存，启动时检测已有结果 → 断点续传。
+commit: `e9340b8`
+
+---
+
+### 当前状态总结
+
+| 已排除 | 证据 |
+|--------|------|
+| 架构 bug | 过拟合 100 条可达 78% 准确率 |
+| Norm 问题 | 修复后 norm=0.94，但仍然预测错误 |
+| SID 语义 | RQ-VAE 按 multimodal embedding 聚类，不按 artist |
+
+| 已验证，效果未定 | 证据 |
+|------------------|------|
+| 约束 softmax | 过拟合 loss 更低，全量数据泛化效果待测 |
+
+| 未测试 | 内容 |
+|--------|------|
+| 假设 3 | LoRA r=16 容量 → r=64/128 |
+| 假设 4 | lm_head SID 行未被优化器直接更新 |
+
+### 下一步
+
+1. 服务器全量训练（含 norm fix + 约束 softmax + 数据对齐修复）
+2. 下载推理+评估，对比旧版
+3. 如果仍然随机 → 测假设 3（增大 LoRA rank）+ 假设 4（lm_head 参与训练）
