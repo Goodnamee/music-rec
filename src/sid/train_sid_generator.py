@@ -44,34 +44,87 @@ except ImportError:
 
 
 class LigerTrainer(Trainer):
-    """Custom Trainer that uses liger-kernel fused linear+CE loss.
+    """Custom Trainer: optionally restricts CE loss to valid SID tokens.
 
-    Instead of materializing [B*T, V] logits in fp32, it passes the last
-    hidden state + lm_head.weight directly to liger's fused kernel which
-    computes loss on-the-fly — saving 80%+ of the loss VRAM.
+    When sids_valid_ids is set, at label positions (labels != -100) the
+    softmax denominator only includes the specified token ids instead of
+    the full 153717 vocabulary.  This matches the constrained decoding
+    distribution used during inference.
     """
+
+    def __init__(self, sids_valid_ids: set | None = None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._sids_valid_ids = sids_valid_ids
+        if sids_valid_ids is not None:
+            self._sids_valid_list = sorted(sids_valid_ids)
+            self._sids_idx_map = {tid: i for i, tid in enumerate(self._sids_valid_list)}
+            print(f"[loss] constrained softmax: {len(sids_valid_ids)} tokens "
+                  f"(SID + space + EOS) out of full vocab")
+        else:
+            self._sids_valid_list = None
+            self._sids_idx_map = None
+
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         labels = inputs.get("labels")
-        if labels is None or not _LIGER_AVAILABLE:
+        if labels is None:
             return super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
 
-        # Eval needs logits → fall back to standard model forward
-        if return_outputs or not model.training:
+        # Eval or non-constrained → standard path
+        use_constrained = (self._sids_valid_list is not None
+                           and model.training
+                           and not return_outputs)
+
+        if not use_constrained and _LIGER_AVAILABLE:
+            # Fast path: liger fused CE
+            base_model = model.get_base_model()
+            outputs = base_model.model(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs.get("attention_mask"),
+            )
+            hidden_states = outputs.last_hidden_state
+            loss = _fused_ce(
+                hidden_states.view(-1, hidden_states.shape[-1]),
+                base_model.lm_head.weight,
+                labels.view(-1),
+                ignore_index=-100,
+            )
+            return loss
+
+        if not use_constrained:
             return super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
 
-        # Training: bypass lm_head, fused CE on hidden states (saves VRAM)
+        # ── Constrained softmax path ──
         base_model = model.get_base_model()
         outputs = base_model.model(
             input_ids=inputs["input_ids"],
             attention_mask=inputs.get("attention_mask"),
         )
-        hidden_states = outputs.last_hidden_state
+        hidden_states = outputs.last_hidden_state  # [B, T, D]
 
-        loss = _fused_ce(
-            hidden_states.view(-1, hidden_states.shape[-1]),
-            base_model.lm_head.weight,
-            labels.view(-1),
-            ignore_index=-100,
+        # Only compute loss at label positions
+        label_mask = labels != -100  # [B, T]
+        n_labels = label_mask.sum().item()
+        if n_labels == 0:
+            return torch.tensor(0.0, device=hidden_states.device, requires_grad=True)
+
+        h_selected = hidden_states[label_mask]          # [N, D]
+        # Project only to valid tokens
+        lm_head_w = base_model.lm_head.weight           # [V, D]
+        valid_w = lm_head_w[self._sids_valid_list]      # [K, D]
+        logits = h_selected @ valid_w.T                  # [N, K]
+
+        # Map original label ids to constrained indices
+        orig_labels = labels[label_mask]  # [N]
+        mapped_labels = torch.full_like(orig_labels, -100)
+        for orig_id in orig_labels.unique().tolist():
+            if orig_id == -100:
+                continue
+            idx = self._sids_idx_map.get(orig_id)
+            if idx is not None:
+                mapped_labels[orig_labels == orig_id] = idx
+
+        loss = torch.nn.functional.cross_entropy(
+            logits, mapped_labels, ignore_index=-100,
         )
         return loss
 
@@ -380,6 +433,15 @@ def main():
         remove_unused_columns=False,
     )
 
+    # ── Build valid SID token set for constrained softmax ──
+    # Training loss only competes among SID tokens + space + EOS,
+    # matching the constrained decoding distribution at inference time.
+    sid_ids = set(tokenizer.convert_tokens_to_ids(SID_TOKENS))
+    space_id = tokenizer.encode(" ", add_special_tokens=False)[0]
+    eos_id = tokenizer.eos_token_id
+    valid_ids = sid_ids | {space_id, eos_id}
+    print(f"[loss] constrained softmax: {len(valid_ids)} tokens vs {len(tokenizer)} full vocab")
+
     trainer_cls = LigerTrainer if _LIGER_AVAILABLE else Trainer
     callbacks = [] if preset.get("skip_eval") else [EarlyStoppingCallback(early_stopping_patience=4)]
 
@@ -407,6 +469,11 @@ def main():
         callbacks=callbacks,
         optimizers=(optimizer, None),
     )
+    # Inject valid_ids for constrained softmax (LigerTrainer only)
+    if isinstance(trainer, LigerTrainer):
+        trainer._sids_valid_ids = valid_ids
+        trainer._sids_valid_list = sorted(valid_ids)
+        trainer._sids_idx_map = {tid: i for i, tid in enumerate(trainer._sids_valid_list)}
     model.config.use_cache = False
 
     try:

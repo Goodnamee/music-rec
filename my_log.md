@@ -357,9 +357,75 @@ with torch.no_grad():
 
 效果：SID token embedding 初始 norm ≈ 1.0，和普通词同一量级。
 
-### ⬜ 待做：服务器重新训练
+### 验证结果：Norm 修复未解决根本问题 (2026-06-25)
 
-```bash
-# 服务器 pull 代码后
-nohup bash scripts/train_eval_5090.sh > train.log 2>&1 &
+| Version | Eval Loss | nDCG@1 | nDCG@20 | SID Norm |
+|---------|-----------|--------|---------|----------|
+| 旧 no-fix ckpt-500 | 22.06 | 0.00013 | 0.00027 | 0.35 |
+| 旧 no-fix ckpt-2000 | 23.00 | 0 | 0.00022 | 0.35 |
+| norm-fix ckpt-500 | **37.76** | **0** | 0.00003 | **0.94** |
+| norm-fix ckpt-2500 | 37.76 | **0** | 0.00011 | 0.94 |
+| Random | — | 0.000125 | — | — |
+| BM25 | — | 0.014 | — | — |
+
+eval_loss 翻倍（22→37.76）—— norm=1.0 让模型自信地猜错，而不是不确定地猜。
+
+## 分析框架：为何 LoRA+Constrained Decoding 无法学到 SID 映射
+
+五个可测试的假设，从浅到深：
+
+### 假设 1：模型能不能记住少量样本？
+
+取 100 条训练数据，过拟合到 train_loss=0。若能记住，说明架构/梯度/损失没问题，问题是泛化；若记不住，说明架构有 bug。
+
+### 假设 2：训练时 softmax 分母稀释 SID 梯度
+
+训练时 softmax 分母 153717 tokens，推理时约束后 256 tokens，分布完全不同。
+测试：训练时只对合法 SID token 算 loss（约束 softmax）。
+
+### 假设 3：LoRA r=16 容量不够
+
+SID 映射需要从对话提取音乐语义，LoRA rank=16 瓶颈可能不够。
+测试：r=64 或 r=128 训练，对比 eval_loss。
+
+### 假设 4：lm_head SID 行被排除优化
+
+当前 optimizer 排除了 lm_head，SID 行只通过 sid_embed → tied embedding 间接更新。
+测试：允许 optimizer 直接更新 lm_head SID 行。
+
+### 假设 5：对话语义和 SID 之间没有可学习的映射
+
+RQ-VAE 对 track 聚类，但对话意图（"来点摇滚"）和 SID 码（`<a_7> <b_48> <c_80>`）之间可能没有稳定对应关系。
+测试：用 track metadata 描述直接预测 SID（aux task），看准确率。
+
+### 执行计划
+
+先测 1（过拟合）和 5（aux task 语义检查），按需测 2/3/4。
+
+### 测试 5 结果 (2026-06-25)
+
+SID codes DO carry semantics — 但不是按艺术家分组的：
+- Same `<a_X>` prefix → artist overlap = 0.0000 (SIDs don't group by artist)
+- Same `<a_X> <b_Y>` prefix → 0 matching pairs out of 10000 sampled
+- RQ-VAE clusters by multimodal embedding (attributes+lyrics+CF), not by artist/genre
+- Genres field in HF metadata is empty for ALL 47071 tracks
+
+结论：SID 码按"音乐氛围"聚类，每层 256 码覆盖 ~180 条氛围相似的 track。SID 结构本身是有效的。
+
+### 测试 1 结果 (2026-06-25)
+
+**Accuracy = 78/100 (78%)，train_loss = 0.049**
+
 ```
+[0] pred="<a_4> <b_139> <c_62>" | label="<a_4> <b_139> <c_62>" | OK
+[1] pred="<a_125> <b_3> <c_100>" | label="<a_125> <b_3> <c_100>" | OK
+```
+
+**架构没有 bug。** LoRA + sid_embed + 梯度路由都能正常工作。模型能记住 100 条训练数据。
+
+**问题是泛化**：161K 样本 vs 46K SID 组合，每个 SID 平均出现 ~3.5 次，模型背住了但推不出规律。
+
+### 下一步：假设 2 — 训练时使用约束 softmax
+
+当前训练时 softmax 分母 = 153717 tokens。推理时 constrained decoding 只允许 ~770 个。
+训练和推理的分布不匹配，是导致差泛化的最可疑原因。
