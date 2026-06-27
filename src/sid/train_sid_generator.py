@@ -334,50 +334,29 @@ def main():
         lora_alpha=args.lora_alpha,
         lora_dropout=args.lora_dropout,
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        modules_to_save=["embed_tokens", "lm_head"],
     )
     model = get_peft_model(model, lora_config)
 
-    # Only train the new SID token rows — keep the 152K original vocab rows frozen.
-    # Qwen3 ties embed_tokens == lm_head, so everything works on the same tensor.
-    #
-    # Strategy (same as minionerec_lite sft_lora.py:234-243, but optimized):
-    #   1. Full embedding requires_grad=True so gradients flow during backward.
-    #   2. Backward hook zeros old-row grads + routes SID-row grads to a tiny
-    #      sid_embed parameter (262K params instead of 155M).
-    #   3. Forward pre-hook patches sid_embed into the frozen embedding weight.
-    #   4. Custom optimizer excludes the full embedding → only LoRA + sid_embed
-    #      are updated each step.
+    # ── Freeze old vocab rows: only train SID token rows ──
+    # modules_to_save adds embed_tokens & lm_head to optimizer.
+    # Backward hook zeros gradients for pre-existing vocab rows so only
+    # the 2048 SID rows receive updates.  Weight decay is disabled for
+    # embed_tokens to avoid pulling old rows toward zero.
     embed_layer = model.get_input_embeddings()
     embed_weight = embed_layer.weight
     embed_weight.requires_grad = True
 
-    # Tiny trainable buffer for just the SID rows (262K params).
-    # Registered on the model so model.parameters() / Trainer discover it.
-    sid_embed = torch.nn.Parameter(embed_weight[original_vocab_size:].clone())
-    model.register_parameter("sid_embed", sid_embed)
-
-    # ── backward hook: route grads & zero full embed ──
-    def _route_grad(grad):
-        # Accumulate SID-row gradients onto sid_embed
-        sid_grad = grad[original_vocab_size:].clone()
-        if model.sid_embed.grad is None:
-            model.sid_embed._grad = sid_grad
-        else:
-            model.sid_embed.grad.add_(sid_grad)
-        grad.zero_()  # full embedding gets no update
+    def _freeze_old_rows(grad):
+        """Zero gradients for original vocab rows; SID rows keep their gradient."""
+        grad[:original_vocab_size].zero_()
         return grad
 
-    embed_weight.register_hook(_route_grad)
-
-    # ── forward pre-hook: patch sid_embed into embedding before lookup ──
-    def _patch_sid(module, _args):
-        module.weight.data[original_vocab_size:] = model.sid_embed.data
-
-    embed_layer.register_forward_pre_hook(_patch_sid)
+    embed_weight.register_hook(_freeze_old_rows)
 
     n_new = embed_weight.shape[0] - original_vocab_size
-    print(f"[sid-embed] {n_new}/{embed_weight.shape[0]} rows trainable "
-          f"via separate sid_embed param ({n_new*embed_weight.shape[1]:,} params)")
+    print(f"[embed] modules_to_save: {n_new}/{(original_vocab_size + n_new):,} SID rows "
+          f"trainable directly (no sid_embed proxy)")
 
     model.print_trainable_parameters()
 
@@ -445,19 +424,31 @@ def main():
     trainer_cls = LigerTrainer if _LIGER_AVAILABLE else Trainer
     callbacks = [] if preset.get("skip_eval") else [EarlyStoppingCallback(early_stopping_patience=4)]
 
-    # Build optimizer that excludes the full embedding weight (155M).
-    # Only LoRA adapters + the tiny sid_embed param are actually updated.
-    # The full embedding still has requires_grad=True so autograd computes
-    # gradients through it, but the backward hook routes SID-row gradients
-    # to sid_embed and zeros the rest — so the optimizer doesn't need it.
-    opt_params = [p for n, p in model.named_parameters()
-                  if p.requires_grad and "embed_tokens" not in n and "lm_head" not in n]
-    n_opt = sum(p.numel() for p in opt_params)
-    print(f"[opt] excluding full embedding, optimizer tracks {n_opt:,} params "
-          f"(vs {sum(p.numel() for p in model.parameters() if p.requires_grad):,} total trainable)")
-
+    # Build optimizer with per-param weight_decay:
+    #   - embed_tokens / lm_head: weight_decay=0 (old rows frozen by hook,
+    #     SID rows need to grow without decay pulling them toward zero)
+    #   - LoRA adapters: weight_decay as usual
     from torch.optim import AdamW
-    optimizer = AdamW(opt_params, lr=args.lr, weight_decay=0.01)
+    no_decay_names = {"embed_tokens", "lm_head"}
+    decay_params, no_decay_params = [], []
+    for n, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        if any(nd in n for nd in no_decay_names):
+            no_decay_params.append(p)
+        else:
+            decay_params.append(p)
+
+    opt_params = [
+        {"params": decay_params, "weight_decay": 0.01},
+        {"params": no_decay_params, "weight_decay": 0.0},
+    ]
+    n_all = sum(p.numel() for p in decay_params + no_decay_params)
+    n_embed = sum(p.numel() for p in no_decay_params)
+    print(f"[opt] {len(decay_params)} LoRA groups (wd=0.01) + "
+          f"{len(no_decay_params)} embed groups (wd=0.0)")
+    print(f"[opt] trainable: {n_all:,} params (embed {n_embed:,} + LoRA {n_all - n_embed:,})")
+    optimizer = AdamW(opt_params, lr=args.lr)
 
     trainer = trainer_cls(
         model=model,
